@@ -1,0 +1,1720 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cascadia — Oregon Tsunami Simulator</title>
+<meta name="description" content="Pick a Cascadia megathrust magnitude off the Oregon coast and watch a minute-by-minute tsunami propagation and inundation simulation built on real elevation data.">
+<meta name="theme-color" content="#06090f">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2306090f'/%3E%3Cpath d='M6 40c6-14 10 10 16-4s10 10 16-4 10 8 20-6' fill='none' stroke='%2338e8ff' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M6 50c6-10 10 8 16-2s10 8 16-2 10 6 20-4' fill='none' stroke='%23ffb03a' stroke-width='3' stroke-linecap='round' opacity='.85'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#06090f; --bg2:#0a0f18; --panel:#0c131e; --panel2:#101a28;
+  --line:#1b2838; --line2:#26384d;
+  --ink:#e7eef7; --body:#a9bacd; --muted:#6d8199;
+  --cyan:#38e8ff; --cyan-dim:rgba(56,232,255,.14);
+  --amber:#ffb03a; --amber-dim:rgba(255,176,58,.14);
+  --red:#ff4d5e; --green:#48e08a;
+  --mono:ui-monospace,"Cascadia Mono","SF Mono",Consolas,"Roboto Mono",monospace;
+  --sans:"Inter",-apple-system,"Segoe UI",system-ui,sans-serif;
+  --r:10px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:
+   radial-gradient(1200px 700px at 18% -10%, #0d1b2a 0%, transparent 60%),
+   radial-gradient(900px 600px at 90% 0%, #131020 0%, transparent 55%),
+   var(--bg);
+  color:var(--ink);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased;
+  overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+
+/* ---------- header ---------- */
+header#top{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:12px 18px 10px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.mark{width:34px;height:34px;flex:0 0 auto;border-radius:9px;display:grid;place-items:center;
+  background:linear-gradient(160deg,rgba(56,232,255,.22),rgba(255,176,58,.10));
+  border:1px solid var(--line2);color:var(--cyan);font-size:16px}
+h1{margin:0;font-size:13.5px;letter-spacing:.20em;font-weight:650;text-transform:uppercase}
+h1 .slash{color:var(--cyan);opacity:.6;margin:0 6px}
+.sub{margin:3px 0 0;font-size:11.5px;color:var(--muted);letter-spacing:.02em}
+.sub .dim{color:#54677c}
+.pill{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  padding:6px 11px;border-radius:999px;border:1px solid var(--line2);color:var(--body);
+  background:var(--panel);white-space:nowrap;display:flex;align-items:center;gap:8px}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.pill[data-s="computing"] .dot{background:var(--amber);box-shadow:0 0 8px var(--amber);animation:blink 900ms infinite}
+.pill[data-s="running"] .dot{background:var(--cyan);box-shadow:0 0 10px var(--cyan);animation:blink 1400ms infinite}
+.pill[data-s="alert"] .dot{background:var(--red);box-shadow:0 0 10px var(--red)}
+@keyframes blink{50%{opacity:.25}}
+
+/* ---------- layout ---------- */
+main{flex:1;min-height:0;display:grid;grid-template-columns:312px minmax(0,1fr) 392px;
+  gap:12px;padding:12px 16px 14px}
+#stage{min-width:0;min-height:0;display:flex;flex-direction:column;gap:10px}
+#mapBox{position:relative;flex:1;min-height:0;display:grid;place-items:center;
+  background:#050a10;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+#mapFit{position:relative;line-height:0}
+canvas#gl{display:block;border-radius:8px}
+#markers{position:absolute;inset:0;overflow:hidden;border-radius:8px}
+#mapBox::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:var(--r);
+  box-shadow:inset 0 0 90px 20px rgba(0,0,0,.55)}
+
+/* map furniture */
+.hud{position:absolute;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  color:var(--muted);pointer-events:none;text-shadow:0 1px 3px #000}
+#clockBig{position:absolute;left:14px;top:12px;pointer-events:none}
+#clockBig b{display:block;font-family:var(--mono);font-size:30px;font-weight:500;
+  letter-spacing:.02em;color:var(--ink);line-height:1}
+#clockBig b.warn{color:var(--amber)}
+#clockBig small{font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;color:var(--muted);
+  text-transform:uppercase}
+#mapMeta{position:absolute;right:12px;top:12px;text-align:right;pointer-events:none;
+  font-family:var(--mono);font-size:9.5px;line-height:1.7;letter-spacing:.1em;color:#5d7288}
+#mapMeta b{color:var(--body);font-weight:500}
+#graticule{position:absolute;inset:0;pointer-events:none}
+.grat{position:absolute;font-family:var(--mono);font-size:9px;color:#4a5f75;letter-spacing:.06em}
+.grat.v{transform:translateX(-50%)}
+.grat.h{right:6px;transform:translateY(-50%)}
+
+#compass{position:absolute;right:10px;top:10px;font-family:var(--mono);font-size:9px;
+  color:#6d8199;letter-spacing:.1em;text-align:center;pointer-events:none;line-height:1}
+#compass i{display:block;width:1px;height:16px;background:linear-gradient(180deg,var(--cyan),transparent);
+  margin:3px auto 0}
+#scaleBar{position:absolute;right:12px;bottom:14px;pointer-events:none;text-align:right}
+#scaleBar b{display:block;height:5px;border:1px solid #7d93aa;border-top:0;
+  background:linear-gradient(90deg,rgba(125,147,170,.35),rgba(125,147,170,0))}
+#scaleBar span{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;color:#7d93aa}
+#legend{position:absolute;left:12px;bottom:10px;display:flex;gap:14px;align-items:flex-end;
+  pointer-events:none;flex-wrap:wrap;max-width:calc(100% - 24px)}
+.lg{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:#5d7288;text-transform:uppercase}
+.lg .bar{height:5px;border-radius:2px;margin-bottom:4px}
+.lg .ramp{width:112px}
+.lg .ticks{display:flex;justify-content:space-between;margin-top:3px;font-size:8px;color:#4a5f75}
+
+/* transport */
+#transport{display:flex;align-items:center;gap:12px;padding:9px 12px;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--r)}
+#playBtn{width:38px;height:38px;flex:0 0 auto;border-radius:50%;border:1px solid var(--line2);
+  background:linear-gradient(160deg,#12303d,#0d2030);color:var(--cyan);font-size:13px;
+  cursor:pointer;display:grid;place-items:center;transition:.15s}
+#playBtn:hover{border-color:var(--cyan);box-shadow:0 0 16px rgba(56,232,255,.22)}
+#scrubWrap{flex:1;position:relative;min-width:0}
+#scrub{-webkit-appearance:none;appearance:none;width:100%;height:22px;background:transparent;
+  cursor:pointer;margin:0;display:block}
+#scrub::-webkit-slider-runnable-track{height:4px;border-radius:2px;
+  background:linear-gradient(90deg,rgba(56,232,255,.55) 0%,rgba(56,232,255,.55) var(--p,0%),
+   #16232f var(--p,0%), #16232f 100%)}
+#scrub::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;
+  background:var(--cyan);margin-top:-4px;box-shadow:0 0 10px rgba(56,232,255,.7);border:0}
+#scrub::-moz-range-track{height:4px;border-radius:2px;background:#16232f}
+#scrub::-moz-range-thumb{width:12px;height:12px;border:0;border-radius:50%;background:var(--cyan)}
+#ticks{display:flex;justify-content:space-between;font-family:var(--mono);font-size:8.5px;
+  color:#405467;letter-spacing:.06em;margin-top:-2px}
+#speed{background:var(--panel2);color:var(--body);border:1px solid var(--line2);border-radius:7px;
+  font-family:var(--mono);font-size:10.5px;padding:6px 6px;outline:none;cursor:pointer}
+#skipBtn{background:none;border:1px solid var(--line2);color:var(--muted);border-radius:7px;
+  font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:7px 9px;cursor:pointer}
+#skipBtn:hover{color:var(--cyan);border-color:var(--cyan)}
+
+/* rail */
+#railL,#railR{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:2px;
+  display:flex;flex-direction:column;gap:12px;scrollbar-width:thin}
+#railL::-webkit-scrollbar,#railR::-webkit-scrollbar{width:7px}
+#railL::-webkit-scrollbar-thumb,#railR::-webkit-scrollbar-thumb{background:#20303f;border-radius:4px}
+.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);
+  border-radius:var(--r);padding:13px 14px}
+.card h2{margin:0 0 11px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);
+  font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.card h2 span{color:#3d4f63;letter-spacing:.08em;font-weight:500}
+
+/* magnitude */
+.magRow{display:flex;align-items:baseline;gap:10px;margin-bottom:2px}
+#magVal{font-family:var(--mono);font-size:34px;line-height:1;letter-spacing:-.02em;
+  color:var(--ink);transition:color .2s}
+#magTag{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--muted);padding:3px 7px;border-radius:5px;background:#0a1720;border:1px solid var(--line)}
+input[type=range].flat{-webkit-appearance:none;appearance:none;width:100%;height:20px;
+  background:transparent;cursor:pointer;margin:2px 0 0}
+input[type=range].flat::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#17242f}
+input[type=range].flat::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;
+  border-radius:50%;background:var(--ink);margin-top:-5px;border:0;box-shadow:0 0 0 3px rgba(255,176,58,.16)}
+input[type=range].flat::-moz-range-track{height:3px;background:#17242f}
+input[type=range].flat::-moz-range-thumb{width:13px;height:13px;border:0;border-radius:50%;background:var(--ink)}
+.presets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0 13px}
+.presets button{font-family:var(--mono);font-size:10px;padding:7px 2px;border-radius:6px;
+  background:#0a121b;border:1px solid var(--line);color:var(--body);cursor:pointer;transition:.14s}
+.presets button:hover{border-color:var(--line2);color:var(--ink)}
+.presets button.on{border-color:var(--amber);color:var(--amber);background:var(--amber-dim)}
+.field{display:flex;justify-content:space-between;align-items:center;margin-top:9px;
+  font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--muted)}
+.field output{color:var(--body);font-size:10.5px}
+.subField{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);
+  font-size:10px;color:var(--muted);margin-top:4px}
+.switch{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+  font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:11px}
+.switch input{display:none}
+.switch i{width:30px;height:16px;border-radius:9px;background:#16232f;border:1px solid var(--line2);
+  position:relative;transition:.16s;flex:0 0 auto}
+.switch i::after{content:"";position:absolute;left:2px;top:1.5px;width:11px;height:11px;border-radius:50%;
+  background:#5e7186;transition:.16s}
+.switch input:checked + i{background:rgba(56,232,255,.2);border-color:var(--cyan)}
+.switch input:checked + i::after{left:15px;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+#runBtn{width:100%;margin-top:13px;padding:11px;border-radius:8px;cursor:pointer;
+  background:linear-gradient(160deg,rgba(56,232,255,.16),rgba(56,232,255,.06));
+  border:1px solid rgba(56,232,255,.4);color:var(--cyan);
+  font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;transition:.16s}
+#runBtn:hover{background:rgba(56,232,255,.2);box-shadow:0 0 22px rgba(56,232,255,.16)}
+#runBtn:disabled{opacity:.45;cursor:progress}
+
+/* telemetry */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.stat{background:#091019;border:1px solid var(--line);border-radius:8px;padding:8px 9px}
+.stat b{display:block;font-family:var(--mono);font-size:16.5px;font-weight:500;color:var(--ink);
+  letter-spacing:-.01em;line-height:1.15}
+.stat b small{font-size:10px;color:var(--muted);letter-spacing:.04em;margin-left:2px}
+.stat span{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.13em;
+  text-transform:uppercase;color:#526880;margin-top:3px}
+.stat.hot b{color:var(--amber)}
+.stat.alert b{color:var(--red)}
+
+/* towns */
+#townList{margin:0 -4px;max-height:none}
+.town{display:grid;grid-template-columns:1fr auto auto;gap:9px;align-items:center;
+  padding:6px 5px;border-radius:6px;cursor:pointer;border-bottom:1px solid rgba(27,40,56,.5);
+  transition:background .12s}
+.town:hover{background:#0d1825}
+.town.sel{background:#0e2130;box-shadow:inset 2px 0 0 var(--cyan)}
+.town .nm{font-size:11.5px;color:var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.town .nm i{font-style:normal;color:#44586b;font-family:var(--mono);font-size:9px;margin-left:5px}
+.town .ar{font-family:var(--mono);font-size:10.5px;color:#6d8199;letter-spacing:.02em;min-width:44px;text-align:right}
+.town .dp{font-family:var(--mono);font-size:10.5px;min-width:46px;text-align:right;color:#40536a}
+.town.wet .dp{color:var(--cyan)}
+.town.deep .dp{color:var(--amber)}
+.town.done .nm{color:var(--body)}
+.town .bar{grid-column:1/-1;height:2px;border-radius:2px;background:#101c28;margin-top:-2px;overflow:hidden}
+.town .bar i{display:block;height:100%;width:0;background:var(--cyan);transition:width .3s}
+.town.deep .bar i{background:var(--amber)}
+
+/* gauge */
+#gaugeBox{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+#gaugeBox .hd{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+#gauge{width:100%;height:64px;display:block}
+
+/* method */
+#method p{margin:0 0 8px;font-size:11px;line-height:1.55;color:#7f93a9}
+#method b{color:var(--body);font-weight:600}
+#method ul{margin:0 0 8px;padding-left:15px}
+#method li{font-size:10.5px;line-height:1.5;color:#6d8298;margin-bottom:4px}
+#method .src{font-family:var(--mono);font-size:9px;color:#4a5f75;letter-spacing:.04em}
+#method summary{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);cursor:pointer;list-style:none;display:flex;justify-content:space-between}
+#method summary::-webkit-details-marker{display:none}
+#method summary::after{content:"+";color:var(--cyan)}
+#method details[open] summary::after{content:"−"}
+#method details[open] summary{margin-bottom:9px}
+
+/* markers on map */
+.mk{position:absolute;transform:translate(-50%,-50%);pointer-events:none}
+.mk .dot{width:4px;height:4px;border-radius:50%;background:#7d93aa;
+  box-shadow:0 0 0 2px rgba(6,9,15,.75);transition:background .3s,box-shadow .3s,transform .3s}
+.mk .lbl{position:absolute;left:8px;top:-6px;font-family:var(--mono);font-size:8.5px;
+  letter-spacing:.05em;color:#8ea4ba;white-space:nowrap;text-shadow:0 1px 3px #000;opacity:0;
+  transition:opacity .25s,color .25s}
+.mk.show .lbl{opacity:.92}
+.mk.hit .dot{background:var(--cyan);box-shadow:0 0 0 1.5px rgba(6,9,15,.85),0 0 7px var(--cyan);transform:scale(1.15)}
+.mk.pulse .dot{animation:mkpulse 1.1s ease-out 2}
+@keyframes mkpulse{0%{box-shadow:0 0 0 1.5px rgba(6,9,15,.85),0 0 0 0 rgba(56,232,255,.65)}
+  100%{box-shadow:0 0 0 1.5px rgba(6,9,15,.85),0 0 0 11px rgba(56,232,255,0)}}
+.mk.hit .lbl{color:#cfe9f5;opacity:.95}
+
+@media (max-width:1320px){
+  main{grid-template-columns:288px minmax(0,1fr) 356px;padding:10px 12px 12px;gap:10px}
+}
+@media (max-width:1120px){
+  main{grid-template-columns:minmax(0,1fr) 340px;
+       grid-template-areas:"stage railR" "railL railR"}
+  #stage{grid-area:stage} #railR{grid-area:railR} #railL{grid-area:railL;
+       flex-direction:row;overflow:visible;align-items:flex-start}
+  #railL .card{flex:1 1 0;min-width:0}
+}
+@media (max-width:860px){
+  body{overflow:auto}
+  #app{height:auto;min-height:100dvh}
+  main{grid-template-columns:1fr;grid-template-areas:"stage" "railL" "railR";padding:10px}
+  #stage{height:min(78vh,640px)}
+  #railL,#railR{overflow:visible}
+  #railL{flex-direction:column}
+  header#top{padding:10px 12px}
+  h1{font-size:11px;letter-spacing:.14em}
+  .sub{display:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="brand">
+      <div class="mark">◈</div>
+      <div>
+        <h1>Cascadia<span class="slash">//</span>Oregon Tsunami Simulator</h1>
+        <p class="sub">Megathrust source → wave travel → coastal inundation.
+          <span class="dim">Simplified model on real elevation data — not an official evacuation map.</span></p>
+      </div>
+    </div>
+    <div class="pill" id="statusPill" data-s="idle"><span class="dot"></span><span id="statusTxt">Ready</span></div>
+  </header>
+
+  <main>
+    <aside id="railL">
+    <section class="card">
+            <h2>1 · Source <span id="srcNote">Cascadia megathrust</span></h2>
+            <div class="magRow">
+              <div id="magVal">9.0</div>
+              <div id="magTag">full margin</div>
+            </div>
+            <input type="range" class="flat" id="mag" min="6.6" max="9.2" step="0.05" value="9.0">
+            <div class="presets" id="presets"></div>
+            <div class="field"><label for="center">Rupture centre</label><output id="centerOut">44.5°N</output></div>
+            <input type="range" class="flat" id="center" min="42.0" max="46.0" step="0.1" value="44.5">
+            <div class="field"><label for="tide">Sea level / tide</label><output id="tideOut">+0.9 m</output></div>
+            <input type="range" class="flat" id="tide" min="-1" max="3" step="0.1" value="0.9">
+            <label class="switch"><input type="checkbox" id="subs" checked><i></i><span>coseismic subsidence (modelled)</span></label>
+            <button id="runBtn">Recompute wave</button>
+          </section>
+    <section class="card" id="method">
+            <details>
+              <summary>How this is computed &amp; what it is not</summary>
+              <p><b>Source.</b> A Cascadia megathrust rupture whose length scales as
+                <b>L = 50·10<sup>0.65(M−7)</sup> km</b> and whose slip follows from the seismic moment
+                (M₀ = 10<sup>1.5M+9.1</sup> N·m, μ = 35 GPa, 110 km downdip width). Initial sea-surface
+                displacement is taken as 70% of slip.</p>
+              <p><b>Propagation.</b> Huygens/Dijkstra front over the real bathymetry with local speed
+                <b>√(g·h)</b>, emitted progressively along the rupture at 2.5 km/s. Amplitude evolves by
+                Green's law (h<sup>−1/4</sup>) plus a path-length attenuation. Travel times therefore fall
+                out of the basin geometry rather than being hard-coded.</p>
+              <p><b>Inundation.</b> Runup at the shoreline comes from the shoaled amplitude through a
+                saturation curve (breaking limit), modulated by local bay openness and slope from the DEM,
+                plus your tide setting and modelled coseismic subsidence (0.18 × slip, capped at 2.5 m).
+                Flooding then spreads inland by a static "bathtub" fill with a flow-front timing from
+                √(g·depth) — the standard regional evacuation-mapping approach.</p>
+              <p><b>Elevation.</b> 612 × 900 grid (~520 m cells) resampled from AWS Terrain Tiles
+                (SRTM/NED on land, ETOPO bathymetry offshore). Populations are rounded 2020 census
+                figures; "people in zone" is population × the flooded fraction of each town's 2.5 km
+                disc — an exposure indicator, <b>not</b> a casualty forecast.</p>
+              <p><b>Resolution.</b> 520 m cells cannot resolve a 300 m beach berm. Coastal strips
+                narrower than a cell are averaged into the terrain around them, so inundation is
+                under-reported where the coast is steep — most of all on the south coast, where the
+                model shows far less flooding than the official maps do. Estuaries and wide flats
+                (Clatsop plain, Tillamook, the Columbia) are the parts it resolves best.</p>
+              <p><b>What it is not.</b> Not a hydrodynamic model (no momentum, no wave breaking, no
+                sediment, no vertical evacuation). Runup in a real CSZ M9 is estimated at 9–30 m across
+                source scenarios, with ~10 m the preferred value (Witter et al./DOGAMI Cannon Beach
+                study). Treat this as a physically-scaled visualisation of hazard <i>geometry</i>, and
+                use the official DOGAMI/NTHMP maps and local evacuation routes for decisions.</p>
+              <p class="src">Data: AWS Terrain Tiles · DOGAMI TIM series · NTHMP</p>
+            </details>
+          </section>
+    </aside>
+
+    <section id="stage">
+          <div id="mapBox">
+            <div id="mapFit">
+              <canvas id="gl" width="612" height="900"></canvas>
+              <div id="graticule"></div>
+              <div id="markers"></div>
+              <div id="compass">N<i></i></div>
+              <div id="scaleBar"><b></b><span>100 km</span></div>
+            </div>
+            <div id="clockBig"><b id="clockT">T+00:00</b><small class="hud">elapsed since rupture</small></div>
+            <div id="mapMeta">
+              <div><b>CSZ</b> deformation front</div>
+              <div id="metaSrc">— km rupture</div>
+              <div id="metaRes">— cells</div>
+            </div>
+            <div id="legend">
+              <div class="lg">
+                <div class="bar ramp" style="background:linear-gradient(90deg,#0b2c3d,#0e6f86,#38b7d6,#7fe9ff,#e8fbff)"></div>
+                <div class="ticks"><span>0.5</span><span>3</span><span>8</span><span>15 m</span></div>
+                <div style="margin-top:4px">inundation depth</div>
+              </div>
+              <div class="lg">
+                <div class="bar" style="width:54px;background:linear-gradient(90deg,rgba(56,232,255,.15),rgba(56,232,255,.85))"></div>
+                <div style="margin-top:4px">wave front</div>
+              </div>
+              <div class="lg">
+                <div class="bar" style="width:54px;background:repeating-linear-gradient(90deg,#ffb03a 0 2px,transparent 2px 6px);opacity:.8"></div>
+                <div style="margin-top:4px">rupture</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="transport">
+            <button id="playBtn" aria-label="Play">▶</button>
+            <div id="scrubWrap">
+              <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Simulation time">
+              <div id="ticks"><span>0:00</span><span>0:30</span><span>1:00</span><span>1:30</span><span>2:00</span><span>2:30</span></div>
+            </div>
+            <select id="speed" aria-label="Playback speed">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+              <option value="8">8×</option>
+            </select>
+            <button id="skipBtn" title="Jump to maximum inundation">PEAK ⏭</button>
+          </div>
+        </section>
+
+    <aside id="railR">
+    <section class="card">
+            <h2>2 · Wave field <span id="telT">T+00:00</span></h2>
+            <div class="grid2">
+              <div class="stat" id="stSource"><b>—</b><span>slip</span></div>
+              <div class="stat" id="stFirst"><b>—</b><span>first landfall</span></div>
+              <div class="stat hot" id="stRunup"><b>—</b><span>peak runup</span></div>
+              <div class="stat" id="stDepth"><b>—</b><span>max flow depth</span></div>
+              <div class="stat" id="stArea"><b>—</b><span>land flooded</span></div>
+              <div class="stat alert" id="stPeople"><b>—</b><span>people in zone</span></div>
+            </div>
+          </section>
+    <section class="card">
+            <h2>3 · Coastal communities <span id="townCount">—</span></h2>
+            <div id="townList"></div>
+            <div id="gaugeBox">
+              <div class="hd"><span id="gaugeName">select a town</span><span id="gaugePeak">—</span></div>
+              <canvas id="gauge" width="740" height="128"></canvas>
+              <div class="hd" style="margin-top:4px"><span>0:00</span><span>wave train (schematic)</span><span>2:30</span></div>
+            </div>
+          </section>
+    </aside>
+  </main>
+</div>
+
+<script>window.__DEM__ = __DEM_JSON__;</script>
+<script>
+/* CORE-START */
+var Core = (function () {
+  "use strict";
+  // Elevation 0 is water in this DEM (ocean, rivers, lakes, estuaries). Land is > 0.
+  var G = 9.81, EARTH = 111.32, MU = 3.5e10, DOWNDIP_KM = 110, VRUPT = 2.5, AMP_FRAC = 0.85;
+
+  // Cascadia deformation front, south -> north (deg lon/lat, approximate)
+  var TRENCH = [
+    [-124.95, 40.55], [-125.15, 41.20], [-125.30, 41.90], [-125.38, 42.60],
+    [-125.40, 43.30], [-125.38, 44.00], [-125.38, 44.70], [-125.48, 45.40],
+    [-125.65, 46.10], [-125.88, 46.80], [-126.10, 47.50], [-126.40, 48.20]
+  ];
+
+  var PRESETS = [
+    { m: 7.0, label: "7.0", tag: "local thrust" },
+    { m: 8.0, label: "8.0", tag: "segment rupture" },
+    { m: 8.7, label: "8.7", tag: "partial margin" },
+    { m: 9.0, label: "9.0", tag: "full margin" }
+  ];
+
+  var TOWNS = [
+    { n: "Astoria", lo: -123.8313, la: 46.1879, p: 10200 },
+    { n: "Warrenton", lo: -123.9235, la: 46.1651, p: 5600 },
+    { n: "Gearhart", lo: -123.9193, la: 46.0243, p: 1800 },
+    { n: "Seaside", lo: -123.9226, la: 45.9932, p: 7100 },
+    { n: "Cannon Beach", lo: -123.9615, la: 45.8918, p: 1700 },
+    { n: "Manzanita", lo: -123.9351, la: 45.7184, p: 400 },
+    { n: "Rockaway Bch", lo: -123.9432, la: 45.6134, p: 1400 },
+    { n: "Garibaldi", lo: -123.9115, la: 45.5598, p: 800 },
+    { n: "Bay City", lo: -123.8890, la: 45.5226, p: 1400 },
+    { n: "Tillamook", lo: -123.8440, la: 45.4562, p: 5200 },
+    { n: "Pacific City", lo: -123.9623, la: 45.2023, p: 1100 },
+    { n: "Lincoln City", lo: -124.0179, la: 44.9582, p: 9800 },
+    { n: "Depoe Bay", lo: -124.0629, la: 44.8084, p: 1600 },
+    { n: "Newport", lo: -124.0535, la: 44.6368, p: 10900 },
+    { n: "Waldport", lo: -124.0687, la: 44.4268, p: 2300 },
+    { n: "Yachats", lo: -124.1043, la: 44.3112, p: 1000 },
+    { n: "Florence", lo: -124.0998, la: 43.9826, p: 9400 },
+    { n: "Reedsport", lo: -124.0965, la: 43.7023, p: 4300 },
+    { n: "Winchester Bay", lo: -124.1754, la: 43.6690, p: 400 },
+    { n: "North Bend", lo: -124.2243, la: 43.4065, p: 9700 },
+    { n: "Coos Bay", lo: -124.2179, la: 43.3665, p: 16700 },
+    { n: "Charleston", lo: -124.3245, la: 43.3404, p: 1000 },
+    { n: "Bandon", lo: -124.4084, la: 43.1190, p: 3300 },
+    { n: "Port Orford", lo: -124.4976, la: 42.7457, p: 1200 },
+    { n: "Gold Beach", lo: -124.4218, la: 42.4073, p: 2300 },
+    { n: "Brookings", lo: -124.2839, la: 42.0526, p: 6700 },
+    { n: "Harbor", lo: -124.2623, la: 42.0409, p: 2400 }
+  ];
+
+  // ---------- geometry helpers ----------
+  function trenchInfo() {
+    var pts = TRENCH, s = [0], i, tot = 0;
+    for (i = 1; i < pts.length; i++) {
+      var dy = (pts[i][1] - pts[i - 1][1]) * EARTH;
+      var dx = (pts[i][0] - pts[i - 1][0]) * EARTH * Math.cos(pts[i][1] * Math.PI / 180);
+      tot += Math.sqrt(dx * dx + dy * dy);
+      s.push(tot);
+    }
+    return { pts: pts, s: s, total: tot };
+  }
+
+  function ruptureLength(mag) {
+    return Math.min(1200, Math.max(18, 50 * Math.pow(10, 0.65 * (mag - 7))));
+  }
+
+  // sub-polyline of the trench of given length, centred at a latitude
+  function ruptureGeometry(ti, mag, centerLat) {
+    var L = Math.min(ruptureLength(mag), ti.total);
+    // along-distance where the front crosses centerLat
+    var s0 = 0, i, best = 1e9;
+    for (i = 1; i < ti.pts.length; i++) {
+      var a = ti.pts[i - 1], b = ti.pts[i];
+      if ((centerLat - a[1]) * (centerLat - b[1]) <= 0) {
+        var f = (centerLat - a[1]) / (b[1] - a[1] || 1e-9);
+        var cc = ti.s[i - 1] + f * (ti.s[i] - ti.s[i - 1]);
+        if (Math.abs(cc - s0) < best) { best = Math.abs(cc - s0); s0 = cc; }
+      }
+    }
+    if (best === 1e9) s0 = ti.total / 2;
+    var sA = Math.max(0, Math.min(s0 - L / 2, ti.total - L));
+    var sB = sA + L;
+    // sample points between sA and sB
+    var out = [], N = 22, k;
+    for (k = 0; k <= N; k++) {
+      var st = sA + (sB - sA) * k / N;
+      out.push(pointAt(ti, st));
+    }
+    return { pts: out, sA: sA, sB: sB, lenKm: L, midS: (sA + sB) / 2, sMid0: s0 };
+  }
+
+  function pointAt(ti, st) {
+    var i;
+    for (i = 1; i < ti.pts.length; i++) {
+      if (ti.s[i] >= st) {
+        var f = (st - ti.s[i - 1]) / ((ti.s[i] - ti.s[i - 1]) || 1e-9);
+        var a = ti.pts[i - 1], b = ti.pts[i];
+        return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+      }
+    }
+    return ti.pts[ti.pts.length - 1].slice();
+  }
+
+  function slipFor(mag, lenKm) {
+    var m0 = Math.pow(10, 1.5 * mag + 9.1);
+    var area = lenKm * 1e3 * DOWNDIP_KM * 1e3;
+    return m0 / (MU * area);
+  }
+
+  // ---------- model ----------
+  function makeModel(meta, elev) {
+    return {
+      nx: meta.nx, ny: meta.ny, lon0: meta.lon0, lat0: meta.lat0,
+      dlon: meta.dlon, dlat: meta.dlat, elev: elev,
+      lon1: meta.lon0 + meta.dlon * meta.nx,
+      lat1: meta.lat0 + meta.dlat * meta.ny
+    };
+  }
+
+  function cellMeters(m) {
+    var latMid = m.lat0 + m.dlat * m.ny / 2;
+    return { x: m.dlon * EARTH * 1000 * Math.cos(latMid * Math.PI / 180),
+             y: m.dlat * EARTH * 1000 };
+  }
+
+  // binary heap over (key float, id int)
+  function Heap(cap) {
+    this.k = new Float64Array(cap); this.v = new Int32Array(cap); this.n = 0;
+  }
+  Heap.prototype.push = function (key, val) {
+    var i = this.n++, k = this.k, v = this.v;
+    if (i >= k.length) {
+      var nk = new Float64Array(k.length * 2); nk.set(k); this.k = k = nk;
+      var nv = new Int32Array(v.length * 2); nv.set(v); this.v = v = nv;
+    }
+    k[i] = key; v[i] = val;
+    while (i > 0) {
+      var p = (i - 1) >> 1;
+      if (k[p] <= k[i]) break;
+      var tk = k[p]; k[p] = k[i]; k[i] = tk;
+      var tv = v[p]; v[p] = v[i]; v[i] = tv;
+      i = p;
+    }
+  };
+  Heap.prototype.pop = function () {
+    var k = this.k, v = this.v, topK = k[0], topV = v[0], n = --this.n;
+    k[0] = k[n]; v[0] = v[n];
+    var i = 0;
+    for (;;) {
+      var l = 2 * i + 1, r = l + 1, s = i;
+      if (l < n && k[l] < k[s]) s = l;
+      if (r < n && k[r] < k[s]) s = r;
+      if (s === i) break;
+      var tk = k[s]; k[s] = k[i]; k[i] = tk;
+      var tv = v[s]; v[s] = v[i]; v[i] = tv;
+      i = s;
+    }
+    this.topK = topK; this.topV = topV;
+    return topV;
+  };
+  Heap.prototype.empty = function () { return this.n === 0; };
+
+  /**
+   * Run one scenario.
+   * opts: {mag, centerLat, tide, subsidence}
+   */
+  function scenario(model, opts) {
+    var t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    var nx = model.nx, ny = model.ny, n = nx * ny, elev = model.elev;
+    var cm = cellMeters(model);
+    var DIAG = Math.sqrt(cm.x * cm.x + cm.y * cm.y);
+    var tide = opts.tide || 0;
+    var ti = trenchInfo();
+    var rg = ruptureGeometry(ti, opts.mag, opts.centerLat);
+    var slip = slipFor(opts.mag, rg.lenKm);
+    var A0 = AMP_FRAC * slip;
+    var subOn = opts.subsidence !== false;
+    var sub = subOn ? Math.min(1.8, 0.15 * slip) : 0;
+
+    var arrive = new Float32Array(n);   // wave arrival at ocean cells (s)
+    var amp = new Float32Array(n);      // shoaled amplitude (m)
+    var srcT = new Float32Array(n);     // rupture-front time at source (s), -1 = n/a
+    var landT = new Float32Array(n);    // inundation arrival on land (s)
+    var landD = new Float32Array(n);    // max flow depth (m)
+    var landR = new Float32Array(n);    // runup level (m above MSL+tide)
+    var i, j;
+    for (i = 0; i < n; i++) { arrive[i] = 1e9; srcT[i] = -1; landT[i] = 1e9; }
+
+    // --- source band: perpendicular distance to the rupture, rasterised per segment
+    var rp = rg.pts, np = rp.length;
+    var dlonKm = EARTH * 1000 * Math.cos(44 * Math.PI / 180), dlatKm = EARTH * 1000;
+    var BAND_M = 55000;                  // m: cells further than this can never seed
+    var distF = new Float32Array(n);
+    var alongF = new Float32Array(n);
+    for (i = 0; i < n; i++) distF[i] = 1e9;
+    var k, t, ax, ay, bx, by, vx, vy, L2;
+    for (k = 0; k < np - 1; k++) {
+      ax = rp[k][0] * dlonKm; ay = rp[k][1] * dlatKm;
+      bx = rp[k + 1][0] * dlonKm; by = rp[k + 1][1] * dlatKm;
+      vx = bx - ax; vy = by - ay;
+      L2 = vx * vx + vy * vy || 1e-9;
+      var lonA = Math.min(rp[k][0], rp[k + 1][0]) - BAND_M / dlonKm;
+      var lonB = Math.max(rp[k][0], rp[k + 1][0]) + BAND_M / dlonKm;
+      var latA = Math.min(rp[k][1], rp[k + 1][1]) - BAND_M / dlatKm;
+      var latB = Math.max(rp[k][1], rp[k + 1][1]) + BAND_M / dlatKm;
+      var iA = Math.max(0, Math.floor((lonA - model.lon0) / model.dlon));
+      var iB = Math.min(nx - 1, Math.ceil((lonB - model.lon0) / model.dlon));
+      var jA = Math.max(0, Math.floor((model.lat1 - latB) / model.dlat));
+      var jB = Math.min(ny - 1, Math.ceil((model.lat1 - latA) / model.dlat));
+      for (var jj = jA; jj <= jB; jj++) {
+        var py = (model.lat1 - (jj + 0.5) * model.dlat) * dlatKm;
+        for (var ii = iA; ii <= iB; ii++) {
+          var px = (model.lon0 + (ii + 0.5) * model.dlon) * dlonKm;
+          var wx = px - ax, wy = py - ay;
+          var tt = (wx * vx + wy * vy) / L2;
+          if (tt < 0) tt = 0; else if (tt > 1) tt = 1;
+          var qx = ax + vx * tt - px, qy = ay + vy * tt - py;
+          var dd = Math.sqrt(qx * qx + qy * qy);
+          var idd = jj * nx + ii;
+          if (dd < distF[idd]) { distF[idd] = dd; alongF[idd] = k + tt; }
+        }
+      }
+    }
+
+    // the rupture front is drawn as a thin line on the deformation front itself
+    for (i = 0; i < n; i++) {
+      if (distF[i] < 1300) {
+        var al = rg.sA + (rg.sB - rg.sA) * (alongF[i] / (np - 1));
+        srcT[i] = Math.abs(al - rg.midS) / VRUPT;
+      }
+    }
+
+    var heap = new Heap(n);
+    var seeded = 0;
+    for (j = 0; j < ny; j++) {
+      for (i = 0; i < nx; i++) {
+        var id = j * nx + i;
+        if (elev[id] > 0) continue;
+        var dkm = distF[id] / 1000;
+        var bestAlong = rg.sA + (rg.sB - rg.sA) * ((alongF[id]) / (np - 1));
+        if (dkm > 6 && dkm < 50 && elev[id] < -40) {
+          // taper to zero at the rupture ends
+          var ends = Math.min(bestAlong - rg.sA, rg.sB - bestAlong);
+          var taper = Math.min(1, ends / (0.09 * rg.lenKm + 6));
+          // sea-surface displacement peaks ~42 km behind the front and dies toward the
+          // downdip limit, where the margin subsides instead of uplifting
+          // the displaced water is a broad plateau over the rupture plane; only the
+          // seaward edge (the trench itself) and the downdip limit taper to nothing
+          var perp = Math.min(1, Math.max(0, (dkm - 3) / 9));
+          var a0 = A0 * perp * taper;
+          if (a0 > 0.05) {
+            var tstart = Math.abs(bestAlong - rg.midS) / VRUPT;
+            arrive[id] = tstart + 4;
+            amp[id] = a0;
+            heap.push(arrive[id], id);
+            seeded++;
+          }
+        }
+      }
+    }
+
+    // --- ocean propagation (Dijkstra with Green's law amplitude)
+    var done = new Uint8Array(n);
+    var useZ = 2e5;
+    while (!heap.empty()) {
+      var cur = heap.pop();
+      var ck = heap.topK;
+      if (done[cur]) continue;
+      if (ck > arrive[cur] + 1e-3) continue;
+      done[cur] = 1;
+      var ci = cur % nx, cj = (cur / nx) | 0;
+      var he = -elev[cur]; if (he < 1) he = 1;
+      for (var d8 = 0; d8 < 8; d8++) {
+        var di = NEI[d8][0], dj = NEI[d8][1];
+        var ni = ci + di, nj = cj + dj;
+        if (ni < 0 || nj < 0 || ni >= nx || nj >= ny) continue;
+        var nid = nj * nx + ni;
+        if (done[nid] || elev[nid] > 0) continue;
+        var hn = -elev[nid]; if (hn < 1) hn = 1;
+        var dist = (di && dj) ? DIAG : (di ? cm.x : cm.y);
+        var c = Math.sqrt(G * Math.max(he, 6));
+        if (c < 4) c = 4; if (c > 190) c = 190;
+        var tt = arrive[cur] + dist / c;
+        if (tt < arrive[nid] - 1e-4) {
+          arrive[nid] = tt;
+          var hc = Math.max(he, 8), hn2 = Math.max(hn, 8);
+          // waves lose energy fast once they leave the open shelf (rivers, tidal flats)
+          var damp = elev[cur] > -2 ? 30000 : useZ;
+          amp[nid] = amp[cur] * Math.pow(hc / hn2, 0.25) * Math.exp(-dist / damp);
+          heap.push(tt, nid);
+        }
+      }
+    }
+
+    // --- shoreline runup seeds + inland flood
+    var h2 = new Heap(1 << 16);
+    var open = new Float32Array(n);   // openness ratio near coast (ocean fraction)
+    for (j = 0; j < ny; j++) {
+      for (i = 0; i < nx; i++) {
+        var id2 = j * nx + i;
+        if (elev[id2] > 0) continue;
+        if (arrive[id2] > 1e8) continue;
+        // find adjacent land, then runup there
+        for (var q = 0; q < 8; q++) {
+          var li = i + NEI[q][0], lj = j + NEI[q][1];
+          if (li < 0 || lj < 0 || li >= nx || lj >= ny) continue;
+          var lid = lj * nx + li;
+          if (elev[lid] > 0) {
+            // openness: ocean fraction in a 7x7 box centred on the ocean cell
+            var oc = 0, tot = 0, a, b;
+            for (b = -3; b <= 3; b++) for (a = -3; a <= 3; a++) {
+              var xi = i + a, yj = j + b;
+              if (xi < 0 || yj < 0 || xi >= nx || yj >= ny) continue;
+              tot++; if (elev[yj * nx + xi] <= 0) oc++;
+            }
+            var openness = tot ? oc / tot : 0.5;
+            var site = 1.62 - 1.35 * openness;              // bays/estuaries amplify
+            // local inland slope (m per 2 cells) -> gentler slope runs up further
+            var eA = elev[lid], eB = 0, okB = 0;
+            var si = li + (li - i), sj = lj + (lj - j);
+            if (si >= 0 && sj >= 0 && si < nx && sj < ny) { eB = elev[sj * nx + si]; okB = 1; }
+            var slope = okB ? Math.max(0, (eB - eA) / (2 * cm.y)) : 0.05;
+            var slopeF = 0.78 + 0.42 * (1 - Math.min(1, slope / 0.16));
+            var aShore = amp[id2];
+            var Rcap = 16;
+            var R = Rcap * (1 - Math.exp(-aShore / Rcap)) * site * slopeF + tide + sub;
+            if (landT[lid] > arrive[id2] - 1e-3) {
+              landT[lid] = arrive[id2];
+              if (R > landR[lid]) landR[lid] = R;
+              landD[lid] = landR[lid] - elev[lid];
+              h2.push(landT[lid], lid);
+            } else if (R > landR[lid]) {
+              landR[lid] = R;
+              landD[lid] = landR[lid] - elev[lid];
+            }
+          }
+        }
+      }
+    }
+
+    // inland Dijkstra
+    var doneL = new Uint8Array(n);
+    var fheap = new Heap(1 << 14);
+    for (i = 0; i < n; i++) if (landT[i] < 1e8) fheap.push(landT[i], i);
+    var maxDepth = 0, maxR = 0, flooded = 0, maxDepthAt = -1;
+    var guard = 0;
+    while (!fheap.empty() && guard++ < 4e6) {
+      var cid = fheap.pop(), kk = fheap.topK;
+      if (doneL[cid] || kk > landT[cid] + 1e-3) continue;
+      doneL[cid] = 1;
+      var R0 = landR[cid];
+      if (R0 > maxR) maxR = R0;
+      var bi = cid % nx, bj = (cid / nx) | 0;
+      for (var d9 = 0; d9 < 8; d9++) {
+        var qi = bi + NEI[d9][0], qj = bj + NEI[d9][1];
+        if (qi < 0 || qj < 0 || qi >= nx || qj >= ny) continue;
+        var nid2 = qj * nx + qi;
+        if (doneL[nid2] || elev[nid2] <= 0) continue;
+        var step = (NEI[d9][0] && NEI[d9][1]) ? DIAG : (NEI[d9][0] ? cm.x : cm.y);
+        // energy dissipation over land: runup decays with an e-folding of ~25 km
+        var Rn = R0 * Math.exp(-step / 25000);
+        if (elev[nid2] >= Rn) continue;
+        var depth = Rn - elev[nid2];
+        var v = Math.sqrt(G * Math.max(depth, 0.35));
+        if (v > 9) v = 9; if (v < 0.55) v = 0.55;
+        var tt2 = landT[cid] + step / v;
+        if (tt2 < landT[nid2] - 1e-4) {
+          landT[nid2] = tt2;
+          landR[nid2] = Rn;
+          landD[nid2] = depth;
+          fheap.push(tt2, nid2);
+        }
+      }
+    }
+    for (i = 0; i < n; i++) {
+      if (elev[i] > 0 && landD[i] > 0.02) {
+        flooded++;
+        if (landD[i] > maxDepth) { maxDepth = landD[i]; maxDepthAt = i; }
+        if (landR[i] > maxR) maxR = landR[i];
+      }
+    }
+
+    var cellArea = (cm.x * cm.y) / 1e6;
+    var duration = 0;
+    for (i = 0; i < n; i++) {
+      if (arrive[i] < 1e8 && arrive[i] > duration) duration = arrive[i];
+      if (landT[i] < 1e8 && landT[i] > duration) duration = landT[i];
+    }
+    duration = Math.min(150 * 60, Math.max(45 * 60, duration * 1.35));
+
+    var first = 1e9;
+    for (i = 0; i < n; i++) if (landT[i] < first) first = landT[i];
+
+    // cumulative curves (per simulated minute) so the UI reads O(1) per frame
+    var nb = Math.ceil(duration / 60) + 2;
+    var wetCurve = new Float32Array(nb), pplCurve = new Float32Array(nb);
+    for (i = 0; i < n; i++) {
+      if (elev[i] > 0 && landD[i] > 0.02) {
+        var b = Math.min(nb - 1, Math.floor(landT[i] / 60));
+        wetCurve[b] += cellArea;
+      }
+    }
+    for (i = 1; i < nb; i++) wetCurve[i] += wetCurve[i - 1];
+
+    var res = {
+      arrive: arrive, amp: amp, srcT: srcT, landT: landT, landD: landD, landR: landR,
+      floodedCells: flooded, areaKm2: flooded * cellArea, cellAreaKm2: cellArea,
+      maxDepth: maxDepth, maxR: maxR, maxDepthAt: maxDepthAt,
+      duration: duration, firstLandfall: first,
+      slip: slip, sourceAmp: A0, ruptureKm: rg.lenKm, subsidence: sub,
+      subsided: subOn, tide: tide, mag: opts.mag, centerLat: opts.centerLat,
+      rupturePts: rg.pts, computedMs: (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0
+    };
+    res.towns = townReport(model, res, TOWNS);
+    for (i = 0; i < res.towns.length; i++) {
+      var tb = Math.min(nb - 1, Math.floor(res.towns[i].arrive / 60));
+      if (res.towns[i].arrive < 1e8) pplCurve[tb] += res.towns[i].people;
+    }
+    for (i = 1; i < nb; i++) pplCurve[i] += pplCurve[i - 1];
+    res.curve = { area: wetCurve, people: pplCurve, binSec: 60 };
+    return res;
+  }
+
+  var NEI = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+  function townReport(model, res, towns) {
+    var nx = model.nx, ny = model.ny, out = [];
+    var cm = cellMeters(model);
+    var rad = 2500, radCells = Math.max(2, Math.round(rad / cm.x));
+    for (var t = 0; t < towns.length; t++) {
+      var tw = towns[t];
+      var ci = Math.floor((tw.lo - model.lon0) / model.dlon);
+      var cj = Math.floor((model.lat1 - tw.la) / model.dlat);
+      var landN = 0, wet = 0, maxD = 0, minT = 1e9, sumD = 0;
+      for (var dj = -radCells; dj <= radCells; dj++) {
+        for (var di = -radCells; di <= radCells; di++) {
+          var iii = ci + di, jjj = cj + dj;
+          if (iii < 0 || jjj < 0 || iii >= nx || jjj >= ny) continue;
+          var dx = di * cm.x, dy = dj * cm.y;
+          if (dx * dx + dy * dy > rad * rad) continue;
+          var id = jjj * nx + iii;
+          if (model.elev[id] <= 0) continue;
+          landN++;
+          var d = res.landD[id];
+          if (d > 0.05) {
+            wet++;
+            if (d > maxD) maxD = d;
+            sumD += d;
+            if (res.landT[id] < minT) minT = res.landT[id];
+          }
+        }
+      }
+      var frac = landN ? wet / landN : 0;
+      out.push({
+        n: tw.n, lo: tw.lo, la: tw.la, pop: tw.p,
+        runup: res.landR[cj * nx + ci] || 0,
+        depth: maxD, meanDepth: wet ? sumD / wet : 0,
+        arrive: minT, frac: frac, people: Math.round(tw.p * frac), wet: wet
+      });
+    }
+    return out;
+  }
+
+  function fmtClock(s) {
+    if (!isFinite(s) || s > 1e8) return "--:--";
+    var m = Math.floor(s / 60), ss = Math.floor(s % 60);
+    return (m < 10 ? "0" : "") + m + ":" + (ss < 10 ? "0" : "") + ss;
+  }
+  function fmtSigned(v, dp) {
+    var f = Math.pow(10, dp === undefined ? 1 : dp);
+    var r = Math.round(v * f) / f;
+    return (r >= 0 ? "+" : "") + r.toFixed(dp === undefined ? 1 : dp);
+  }
+  function totalRunup(res, t) {
+    // max runup level among cells already wet at time t
+    return res.maxR;
+  }
+
+  return {
+    G: G, TRENCH: TRENCH, TOWNS: TOWNS, PRESETS: PRESETS, NEI: NEI,
+    makeModel: makeModel, scenario: scenario, ruptureLength: ruptureLength,
+    slipFor: slipFor, trenchInfo: trenchInfo, ruptureGeometry: ruptureGeometry,
+    townReport: townReport, cellMeters: cellMeters, fmtClock: fmtClock,
+    fmtSigned: fmtSigned, Heap: Heap, totalRunup: totalRunup,
+    durationFor: function (res) { return res.duration; }
+  };
+})();
+/* CORE-END */
+</script>
+
+<script>
+"use strict";
+(function () {
+  var D = window.__DEM__;
+  var hasDoc = (typeof document !== "undefined");
+  var canvas = document.getElementById("gl");
+  var markers = document.getElementById("markers");
+  var grat = document.getElementById("graticule");
+  var statusPill = document.getElementById("statusPill");
+  var statusTxt = document.getElementById("statusTxt");
+  var clockT = document.getElementById("clockT");
+  var scrub = document.getElementById("scrub");
+  var playBtn = document.getElementById("playBtn");
+  var speedSel = document.getElementById("speed");
+  var townList = document.getElementById("townList");
+  var gauge = document.getElementById("gauge");
+  var gctx = gauge.getContext("2d");
+
+  var state = {
+    mag: 9.0, center: 44.5, tide: 0.9, subs: true,
+    t: 0, playing: false, speed: 1, res: null, model: null,
+    selTown: 11, now: 0, last: 0, computed: false
+  };
+  window.__SIM__ = state;
+
+  // ---------- decode DEM ----------
+  function b64ToBytes(b64) {
+    var bin = atob(b64), n = bin.length, u = new Uint8Array(n);
+    for (var i = 0; i < n; i++) u[i] = bin.charCodeAt(i);
+    return u;
+  }
+  function inflate(bytes) {
+    if (typeof DecompressionStream === "undefined") return Promise.reject(new Error("no DecompressionStream"));
+    var ds = new DecompressionStream("deflate");   // zlib wrapper, as written by python zlib.compress
+    // drain first: a transform stream can deadlock if we await the write before reading
+    var chunks = [], total = 0;
+    var reader = ds.readable.getReader();
+    var drained = (function () {
+      function pump() {
+        return reader.read().then(function (res) {
+          if (res.done) return true;
+          chunks.push(res.value); total += res.value.length;
+          return pump();
+        });
+      }
+      return pump();
+    })();
+    var writer = ds.writable.getWriter();
+    return writer.write(bytes).then(function () { return writer.close(); })
+      .then(function () { return drained; })
+      .then(function () {
+        var out = new Uint8Array(total), off = 0;
+        for (var i = 0; i < chunks.length; i++) { out.set(chunks[i], off); off += chunks[i].length; }
+        return out;
+      });
+  }
+  function buildModel(q) {
+    var tbl = new Float32Array(256);
+    for (var t = 0; t < 256; t++) tbl[t] = D.tbl[t];
+    var elev = new Float32Array(q.length);
+    for (var i = 0; i < q.length; i++) elev[i] = tbl[q[i]];
+    return Core.makeModel(D, elev);
+  }
+
+  // ---------- projection ----------
+  var proj = { w: 1, h: 1, scale: 1, ox: 0, oy: 0, latMid: 44.15 };
+  function updateProj() {
+    var lonSpan = (D.nx * D.dlon) * Math.cos(proj.latMid * Math.PI / 180);
+    var latSpan = D.ny * D.dlat;
+    proj.worldW = lonSpan; proj.worldH = latSpan;
+    proj.aspect = lonSpan / latSpan;
+  }
+  function px(lon, lat) {
+    var lonSpan = proj.worldW, latSpan = proj.worldH;
+    var x = ((lon - D.lon0) * Math.cos(proj.latMid * Math.PI / 180)) / lonSpan;
+    var y = 1 - (lat - D.lat0) / latSpan;
+    return [x * proj.w, y * proj.h];
+  }
+
+  // ---------- WebGL ----------
+  var gl = null, progScene = null, progBlit = null, fbo = null, fboTex = null;
+  var tex = {}, uniS = {}, uniB = {};
+  var TEXW = D.nx, TEXH = D.ny;
+
+  var VS = "#version 300 es\nin vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}";
+
+  var FS_SCENE = [
+    "#version 300 es",
+    "precision highp float; precision highp int;",
+    "uniform sampler2D uElev, uArr, uAmp, uLT, uLD, uSrc;",
+    "uniform ivec2 uG;",
+    "uniform float uT, uWall, uAmpNorm, uMag;",
+    "uniform vec2 uCell;",
+    "out vec4 fragColor;",
+    "float E(ivec2 c){ if(c.x<0||c.y<0||c.x>=uG.x||c.y>=uG.y) return 0.0; return texelFetch(uElev,c,0).r; }",
+    "float T(sampler2D s, ivec2 c){ if(c.x<0||c.y<0||c.x>=uG.x||c.y>=uG.y) return 1e9; return texelFetch(s,c,0).r; }",
+    "float hash(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }",
+    "float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);",
+    "  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }",
+    "void main(){",
+    "  ivec2 c = ivec2(gl_FragCoord.xy);",
+    "  float e  = E(c);",
+    "  float ar = T(uArr,c);",
+    "  float am = T(uAmp,c);",
+    "  float lt = T(uLT,c);",
+    "  float ld = T(uLD,c);",
+    "  float st = T(uSrc,c);",
+    "  float ampN = clamp(am/max(uAmpNorm,0.6), 0.0, 1.35);",
+    "  float ex = E(c+ivec2(1,0)) - E(c-ivec2(1,0));",
+    "  float ey = E(c+ivec2(0,1)) - E(c-ivec2(0,1));",
+    "  vec3 nrm = normalize(vec3(-ex/(2.0*uCell.x), -ey/(2.0*uCell.y), 1.0));",
+    "  float sh = clamp(dot(nrm, normalize(vec3(-0.55,-0.50,0.72))), 0.0, 1.0);",
+    "  float shd = 0.60 + 0.66*sh;",
+    "  vec3 col;",
+    "  if(e <= 0.0){",
+    "    float d = -e;",
+    "    vec3 sea = mix(vec3(0.052,0.125,0.180), vec3(0.028,0.072,0.120), smoothstep(0.0,900.0,d));",
+    "    sea = mix(sea, vec3(0.014,0.038,0.070), smoothstep(900.0,3200.0,d));",
+    "    float cm = abs(fract(d/200.0)-0.5);",
+    "    sea += vec3(0.055,0.115,0.150) * smoothstep(0.43,0.5,cm) * (1.0 - smoothstep(1700.0,2900.0,d));",
+    "    float ck = abs(fract(d/1000.0)-0.5);",
+    "    sea += vec3(0.070,0.150,0.190) * smoothstep(0.465,0.5,ck);",
+    "    sea += vec3(0.035,0.105,0.130) * (1.0-smoothstep(0.0,160.0,d));",
+    "    float sw = vn(vec2(gl_FragCoord.x*0.075, gl_FragCoord.y*0.045 - uWall*0.12));",
+    "    sea *= 0.93 + 0.16*sw;",
+    "    col = sea;",
+    "    if(ar < 1e8){",
+    "      float iso = abs(fract(ar/300.0)-0.5);",
+    "      float line = smoothstep(0.462,0.5,iso);",
+    "      float ahead = smoothstep(-60.0, 900.0, ar-uT);",
+    "      col += vec3(0.20,0.70,0.88) * line * (0.26 + 0.55*ahead);",
+    "    }",
+    "  } else {",
+    "    col = mix(vec3(0.120,0.165,0.115), vec3(0.170,0.205,0.130), smoothstep(15.0,130.0,e));",
+    "    col = mix(col, vec3(0.235,0.220,0.145), smoothstep(130.0,400.0,e));",
+    "    col = mix(col, vec3(0.290,0.255,0.195), smoothstep(400.0,850.0,e));",
+    "    col = mix(col, vec3(0.365,0.335,0.300), smoothstep(850.0,1500.0,e));",
+    "    col *= 0.52 + 1.15*shd;",
+    "    float lc = abs(fract(e/100.0)-0.5);",
+    "    col += vec3(0.030,0.030,0.022) * smoothstep(0.455,0.5,lc) * (1.0-smoothstep(300.0,900.0,e));",
+    "    col += vec3(0.012,0.022,0.016) * (1.0-smoothstep(0.0,55.0,e));",
+    "    float shore = max(max(step(E(c+ivec2(1,0)),0.0), step(E(c-ivec2(1,0)),0.0)),",
+    "                      max(step(E(c+ivec2(0,1)),0.0), step(E(c-ivec2(0,1)),0.0)));",
+    "    col = mix(col, vec3(0.40,0.35,0.24), shore*0.55);",
+    "  }",
+    "  // rupture front travelling along the margin",
+    "  if(st > -0.5 && st < 1e8){",
+    "    float since = uT - st;",
+    "    float live = exp(-max(since,0.0)/150.0) * smoothstep(-40.0, 15.0, since);",
+    "    col += vec3(1.0,0.46,0.16) * (0.10 + 2.0*live);",
+    "  }",
+    "  // tsunami over open water",
+    "  if(e <= 0.0 && ar < 1e8){",
+    "    float since = uT - ar;",
+    "    float front = exp(-pow(since/45.0, 2.0));",
+    "    float trail = smoothstep(-15.0, 70.0, since) * exp(-max(since,0.0)/1100.0);",
+    "    float rings = 0.5 + 0.5*sin(since/75.0*6.2831);",
+    "    col += vec3(0.22,0.80,1.00) * front * (0.30 + 0.90*ampN);",
+    "    col += vec3(0.06,0.30,0.42) * trail * (0.40 + 0.85*ampN) * (0.55 + 0.45*rings);",
+    "    col += vec3(0.10,0.46,0.60) * smoothstep(-220.0, 0.0, since) * 0.28 * ampN;",
+    "  }",
+    "  // inundation",
+    "  if(e > 0.0 && ld > 0.02 && lt <= uT){",
+    "    float age = uT - lt;",
+    "    float dn = clamp(ld/12.0, 0.0, 1.0);",
+    "    vec3 w = mix(vec3(0.060,0.300,0.420), vec3(0.165,0.620,0.780), smoothstep(0.0,0.5,dn));",
+    "    w = mix(w, vec3(0.620,0.930,1.000), smoothstep(0.60,1.0,dn));",
+    "    float rip = vn(vec2(gl_FragCoord.x*0.20, gl_FragCoord.y*0.20 - uWall*0.85));",
+    "    w *= 0.82 + 0.30*rip;",
+    "    col = w;",
+    "    float foam = exp(-age/260.0);",
+    "    float edge = 0.0;",
+    "    edge = max(edge, 1.0 - step(0.02, T(uLD,c+ivec2(1,0))));",
+    "    edge = max(edge, 1.0 - step(0.02, T(uLD,c-ivec2(1,0))));",
+    "    edge = max(edge, 1.0 - step(0.02, T(uLD,c+ivec2(0,1))));",
+    "    edge = max(edge, 1.0 - step(0.02, T(uLD,c-ivec2(0,1))));",
+    "    col += vec3(0.85,0.97,1.00) * edge * (0.30 + 0.70*foam);",
+    "    col += vec3(0.55,0.90,1.00) * exp(-age/150.0) * 0.30;",
+    "  }",
+    "  else {",
+      "    float nb = max(max(T(uLD,c+ivec2(1,0)), T(uLD,c-ivec2(1,0))), max(T(uLD,c+ivec2(0,1)), T(uLD,c-ivec2(0,1))));",
+      "    if(e > 0.0 && nb > 0.02){ col = mix(col, vec3(0.10,0.42,0.55), 0.42); }",
+      "  }",
+      "  col *= 1.0 - 0.20*pow(length(gl_FragCoord.xy/vec2(uG)-0.5)*1.3, 2.0);",
+    "  col += (hash(gl_FragCoord.xy + uWall)-0.5)*0.010;",
+    "  fragColor = vec4(col, 1.0);",
+    "}"
+  ].join("\n");
+
+  var FS_BLIT = [
+    "#version 300 es",
+    "precision highp float;",
+    "uniform sampler2D uTex;",
+    "uniform vec2 uRes;",
+    "out vec4 fragColor;",
+    "void main(){",
+    "  vec2 uv = gl_FragCoord.xy/uRes;",
+    "  vec3 c = texture(uTex, uv).rgb;",
+    "  vec2 q = uv - 0.5;",
+    "  float v = 1.0 - 0.22*dot(q,q)*1.6;",
+    "  fragColor = vec4(c*v, 1.0);",
+    "}"
+  ].join("\n");
+
+  function compile(type, src) {
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      throw new Error("shader: " + gl.getShaderInfoLog(s));
+    }
+    return s;
+  }
+  function program(vs, fs) {
+    var p = gl.createProgram();
+    gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+    gl.bindAttribLocation(p, 0, "p");
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error("link: " + gl.getProgramInfoLog(p));
+    return p;
+  }
+  function mkTex(data) {
+    var t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, TEXW, TEXH, 0, gl.RED, gl.FLOAT, data);
+    return t;
+  }
+  function initGL() {
+    gl = canvas.getContext("webgl2", { antialias: false, alpha: false, preserveDrawingBuffer: false });
+    if (!gl) throw new Error("WebGL2 unavailable");
+    progScene = program(VS, FS_SCENE);
+    progBlit = program(VS, FS_BLIT);
+    var vb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    fboTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, fboTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, TEXW, TEXH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTex, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      throw new Error("fbo incomplete");
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    var names = ["uElev", "uArr", "uAmp", "uLT", "uLD", "uSrc"];
+    for (var i = 0; i < names.length; i++) {
+      uniS[names[i]] = gl.getUniformLocation(progScene, names[i]);
+    }
+    ["uG", "uT", "uWall", "uAmpNorm", "uCell", "uMag"].forEach(function (k) {
+      uniB[k] = gl.getUniformLocation(progScene, k);
+    });
+    var cells = Core.cellMeters(D);
+    gl.useProgram(progScene);
+    gl.uniform2f(uniB.uCell, cells.x, cells.y);
+    gl.uniform2i(uniB.uG, TEXW, TEXH);
+    window.__GLINFO__ = { ok: true, renderer: gl.getParameter(gl.RENDERER) };
+    return true;
+  }
+
+  // GL texture row 0 is the bottom row; the data arrays start at the north edge.
+  function flipRows(arr) {
+    var out = new Float32Array(arr.length), nx = TEXW, ny = TEXH, j;
+    for (j = 0; j < ny; j++) out.set(arr.subarray(j * nx, j * nx + nx), (ny - 1 - j) * nx);
+    return out;
+  }
+  function upload(name, arr) {
+    var f = flipRows(arr);
+    if (!tex[name]) tex[name] = mkTex(f);
+    else {
+      gl.bindTexture(gl.TEXTURE_2D, tex[name]);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, TEXW, TEXH, 0, gl.RED, gl.FLOAT, f);
+    }
+  }
+
+  function fitCanvas() {
+    var box = document.getElementById("mapBox");
+    var fitEl = document.getElementById("mapFit");
+    var availW = box.clientWidth - 2, availH = box.clientHeight - 2;
+    if (availW < 40 || availH < 40) return;
+    var aspect = proj.aspect || 0.7015;
+    var w = availW, h = w / aspect;
+    if (h > availH) { h = availH; w = h * aspect; }
+    fitEl.style.width = Math.round(w) + "px";
+    fitEl.style.height = Math.round(h) + "px";
+    canvas.style.width = Math.round(w) + "px";
+    canvas.style.height = Math.round(h) + "px";
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(2, Math.round(w * dpr));
+    canvas.height = Math.max(2, Math.round(h * dpr));
+    proj.w = w; proj.h = h;
+    var kmPerPx = (D.nx * D.dlon * 111.32 * Math.cos(proj.latMid * Math.PI / 180)) / w;
+    var kmTarget = kmPerPx * 120 > 60 ? 100 : 50;
+    var sb = document.getElementById("scaleBar");
+    if (sb) {
+      sb.querySelector("b").style.width = (kmTarget / kmPerPx).toFixed(0) + "px";
+      sb.querySelector("span").textContent = kmTarget + " km";
+    }
+    placeMarkers();
+    drawGraticule();
+    if (gl) { gl.viewport(0, 0, canvas.width, canvas.height); }
+  }
+
+  // ---------- markers / graticule ----------
+  var markerEls = [];
+  function buildMarkers() {
+    markers.innerHTML = "";
+    markerEls = [];
+    Core.TOWNS.forEach(function (tw, i) {
+      var el = document.createElement("div");
+      el.className = "mk";
+      el.innerHTML = '<div class="dot"></div><div class="lbl">' + tw.n + "</div>";
+      el.style.left = "0px"; el.style.top = "0px";
+      markers.appendChild(el);
+      markerEls.push(el);
+    });
+  }
+  function placeMarkers() {
+    if (!proj.w) return;
+    Core.TOWNS.forEach(function (tw, i) {
+      var p = px(tw.lo, tw.la);
+      var el = markerEls[i];
+      if (!el) return;
+      el.style.left = p[0].toFixed(1) + "px";
+      el.style.top = p[1].toFixed(1) + "px";
+    });
+  }
+  function drawGraticule() {
+    if (!proj.w) return;
+    var html = "", lon, lat, p;
+    for (lon = -126; lon <= -122; lon += 1) {
+      p = px(lon, D.lat0);
+      html += '<div class="grat v" style="left:' + p[0].toFixed(1) + "px;top:" + (proj.h - 14).toFixed(1) +
+        'px">' + Math.abs(lon) + "°W</div>";
+    }
+    for (lat = 42; lat <= 46; lat += 1) {
+      p = px(D.lon0, lat);
+      html += '<div class="grat h" style="top:' + p[1].toFixed(1) + 'px;left:6px;right:auto">' +
+        lat + "°N</div>";
+    }
+    grat.innerHTML = html;
+  }
+
+  // ---------- render loop ----------
+  var raf = null;
+  function renderScene() {
+    if (!gl || !state.res) return;
+    var res = state.res;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.viewport(0, 0, TEXW, TEXH);
+    gl.useProgram(progScene);
+    gl.bindTexture(gl.TEXTURE_2D, tex.uElev); gl.uniform1i(uniS.uElev, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tex.uArr); gl.uniform1i(uniS.uArr, 1);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tex.uAmp); gl.uniform1i(uniS.uAmp, 2);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, tex.uLT); gl.uniform1i(uniS.uLT, 3);
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, tex.uLD); gl.uniform1i(uniS.uLD, 4);
+    gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, tex.uSrc); gl.uniform1i(uniS.uSrc, 5);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1f(uniB.uT, state.t);
+    gl.uniform1f(uniB.uWall, state.now / 1000);
+    gl.uniform1f(uniB.uAmpNorm, Math.max(0.6, res.sourceAmp * 3.2));
+    gl.uniform1f(uniB.uMag, res.mag);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.useProgram(progBlit);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, fboTex);
+    gl.uniform1i(gl.getUniformLocation(progBlit, "uTex"), 0);
+    gl.uniform2f(gl.getUniformLocation(progBlit, "uRes"), canvas.width, canvas.height);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  // ---------- scenario ----------
+  function setStatus(s, txt) {
+    statusPill.setAttribute("data-s", s);
+    statusTxt.textContent = txt;
+  }
+
+  function compute(autoplay) {
+    if (!state.model) return;
+    setStatus("computing", "Computing");
+    var btn = document.getElementById("runBtn");
+    btn.disabled = true;
+    requestAnimationFrame(function () {
+      setTimeout(function () {
+        var res = Core.scenario(state.model, {
+          mag: state.mag, centerLat: state.center, tide: state.tide, subsidence: state.subs
+        });
+        state.res = res;
+        state.computed = true;
+        upload("uElev", state.model.elev);
+        upload("uArr", res.arrive);
+        upload("uAmp", res.amp);
+        upload("uLT", res.landT);
+        upload("uLD", res.landD);
+        upload("uSrc", res.srcT);
+        btn.disabled = false;
+        document.getElementById("metaSrc").textContent =
+          Math.round(res.ruptureKm) + " km rupture · M" + res.mag.toFixed(1);
+        state.t = 0;
+        paintStats();
+        renderTowns();
+        paintGauge();
+        setStatus(autoplay ? "running" : "idle", autoplay ? "Running" : "Ready");
+        if (autoplay) { state.playing = true; playBtn.textContent = "❚❚"; }
+        updateClock();
+      }, 16);
+    });
+  }
+
+  function curveAt(arr, t, bin) {
+    var i = Math.floor(t / bin);
+    if (i < 0) i = 0;
+    if (i >= arr.length) i = arr.length - 1;
+    return arr[i];
+  }
+  function paintStats() {
+    var r = state.res;
+    if (!r) return;
+    var st = function (id, val, sub) {
+      var el = document.getElementById(id);
+      el.querySelector("b").innerHTML = val + (sub ? "<small>" + sub + "</small>" : "");
+    };
+    st("stSource", r.slip.toFixed(1), " m");
+    st("stFirst", Core.fmtClock(r.firstLandfall), "");
+    st("stRunup", r.maxR.toFixed(1), " m");
+    st("stDepth", r.maxDepth.toFixed(1), " m");
+    st("stArea", curveAt(r.curve.area, state.t, r.curve.binSec).toFixed(0), " km²");
+    st("stPeople", fmtInt(curveAt(r.curve.people, state.t, r.curve.binSec)), "");
+  }
+  function fmtInt(v) {
+    if (v >= 1000) return (v / 1000).toFixed(v >= 10000 ? 0 : 1) + "k";
+    return String(v);
+  }
+
+  // ---------- towns ----------
+  function renderTowns() {
+    var r = state.res;
+    if (!r) return;
+    var list = r.towns.slice().sort(function (a, b) { return b.depth - a.depth; });
+    var wetNow = 0, html = "";
+    list.forEach(function (tw, idx) {
+      var hit = tw.arrive <= state.t && tw.depth > 0.05;
+      if (hit) wetNow++;
+      var cls = hit ? (tw.depth > 4 ? "town wet deep" : "town wet") : "town";
+      if (tw.n === Core.TOWNS[state.selTown].n) cls += " sel";
+      html += '<div class="' + cls + '" data-town="' + tw.n + '">' +
+        '<div class="nm">' + tw.n + "<i>" + fmtInt(tw.pop) + "</i></div>" +
+        '<div class="ar">' + (tw.arrive < 1e8 ? "T" + Core.fmtClock(tw.arrive) : "—") + "</div>" +
+        '<div class="dp">' + (hit ? tw.depth.toFixed(1) + " m" : "dry") + "</div>" +
+        '<div class="bar"><i style="width:' + (hit ? Math.min(100, tw.depth * 9) : 0) + '%"></i></div>' +
+        "</div>";
+    });
+    townList.innerHTML = html;
+    document.getElementById("townCount").textContent = wetNow + " / " + list.length + " hit";
+    Array.prototype.forEach.call(townList.querySelectorAll(".town"), function (el) {
+      el.addEventListener("click", function () {
+        var nm = el.getAttribute("data-town");
+        for (var i = 0; i < Core.TOWNS.length; i++) if (Core.TOWNS[i].n === nm) state.selTown = i;
+        renderTowns(); paintGauge();
+      });
+    });
+  }
+
+  function paintGauge() {
+    var r = state.res;
+    if (!r) return;
+    var tw = r.towns[state.selTown];
+    var W = gauge.width, H = gauge.height;
+    gctx.clearRect(0, 0, W, H);
+    var dur = r.duration;
+    // frame
+    gctx.strokeStyle = "#16232f"; gctx.lineWidth = 1;
+    gctx.beginPath(); gctx.moveTo(0, H - 1); gctx.lineTo(W, H - 1); gctx.stroke();
+    for (var gx = 0; gx <= W; gx += W / 5) {
+      gctx.strokeStyle = "#101b26";
+      gctx.beginPath(); gctx.moveTo(gx, 0); gctx.lineTo(gx, H); gctx.stroke();
+    }
+    document.getElementById("gaugeName").textContent = tw.n + " · gauge";
+    document.getElementById("gaugePeak").textContent = tw.depth > 0.05
+      ? "peak " + tw.depth.toFixed(1) + " m" : "no inundation";
+    if (!(tw.arrive < 1e8) || tw.depth < 0.05) {
+      gctx.fillStyle = "#44586b"; gctx.font = "10px ui-monospace, monospace";
+      gctx.fillText("dry under this scenario", 10, H / 2);
+      return;
+    }
+    var amp = Math.max(0.4, tw.depth * 1.25);
+    function env(tSec) {
+      var v = 0;
+      for (var k = 0; k < 5; k++) {
+        var c = tw.arrive + k * 26 * 60;
+        var s = Math.exp(-Math.pow((tSec - c) / (5.5 * 60), 2));
+        v += amp * Math.pow(0.62, k) * s;
+      }
+      return v;
+    }
+    var maxV = 0.001;
+    for (var s2 = 0; s2 < 300; s2 += 1) maxV = Math.max(maxV, env(s2 * 60 / 2));
+    gctx.beginPath();
+    for (var x = 0; x <= W; x++) {
+      var ts = (x / W) * dur;
+      var v = env(ts);
+      var y = H - 3 - (v / maxV) * (H - 8);
+      if (x === 0) gctx.moveTo(x, y); else gctx.lineTo(x, y);
+    }
+    gctx.strokeStyle = "#38e8ff"; gctx.lineWidth = 1.6; gctx.stroke();
+    gctx.lineTo(W, H); gctx.lineTo(0, H); gctx.closePath();
+    gctx.fillStyle = "rgba(56,232,255,.10)"; gctx.fill();
+    // now marker
+    var nx2 = (state.t / dur) * W;
+    gctx.strokeStyle = "rgba(255,176,58,.8)"; gctx.lineWidth = 1;
+    gctx.beginPath(); gctx.moveTo(nx2, 0); gctx.lineTo(nx2, H); gctx.stroke();
+  }
+
+  // ---------- clock / transport ----------
+  var lastStatusWrite = 0;
+  function updateClock() {
+    var r = state.res;
+    var t = state.t;
+    clockT.textContent = "T+" + Core.fmtClock(t);
+    clockT.className = (r && t >= r.firstLandfall && r.firstLandfall < 1e8) ? "warn" : "";
+    document.getElementById("telT").textContent = "T+" + Core.fmtClock(t);
+    scrub.value = String(Math.round((r ? t / r.duration : 0) * 1000));
+    scrub.style.setProperty("--p", (r ? (t / r.duration) * 100 : 0) + "%");
+    if (!r) return;
+    document.querySelector("#stArea b").innerHTML =
+      curveAt(r.curve.area, t, r.curve.binSec).toFixed(0) + "<small> km²</small>";
+    document.querySelector("#stPeople b").innerHTML =
+      fmtInt(curveAt(r.curve.people, t, r.curve.binSec)) + "<small></small>";
+    var nowMs = state.now || 0;
+    if (nowMs - lastStatusWrite > 260) {
+      lastStatusWrite = nowMs;
+      if (t >= r.duration - 1) setStatus("alert", "Peak reached");
+      else if (t > 0 && state.playing) setStatus("running", "T+" + Core.fmtClock(t));
+      else if (t > 0) setStatus("idle", "Paused T+" + Core.fmtClock(t));
+      else setStatus("idle", "Ready");
+    }
+  }
+
+  function tick(ts) {
+    var dt = state.last ? Math.min(120, (ts - state.last) / 1000) : 0;
+    state.last = ts;
+    state.now = ts;
+    if (state.playing && state.res) {
+      state.t += dt * 60 * state.speed;   // 1x = 1 sim-minute / real second
+      if (state.t >= state.res.duration) {
+        state.t = state.res.duration;
+        state.playing = false;
+        playBtn.textContent = "▶";
+      }
+      updateClock();
+      if (ts - lastTownsPaint > 170) { lastTownsPaint = ts; renderTownsLite(); }
+      if (ts - lastGaugePaint > 400) { lastGaugePaint = ts; paintGauge(); }
+    }
+    renderScene();
+    raf = requestAnimationFrame(tick);
+  }
+
+  var lastTownsPaint = 0, lastGaugePaint = 0;
+  function renderTownsLite() {
+    var r = state.res; if (!r) return;
+    var wetNow = 0;
+    var els = townList.querySelectorAll(".town");
+    var byName = {};
+    r.towns.forEach(function (tw) { byName[tw.n] = tw; });
+    Array.prototype.forEach.call(els, function (el) {
+      var tw = byName[el.getAttribute("data-town")];
+      if (!tw) return;
+      var hit = tw.arrive <= state.t && tw.depth > 0.05;
+      if (hit) wetNow++;
+      el.className = (hit ? (tw.depth > 4 ? "town wet deep" : "town wet") : "town") +
+        (tw.n === Core.TOWNS[state.selTown].n ? " sel" : "");
+      el.querySelector(".dp").textContent = hit ? tw.depth.toFixed(1) + " m" : "dry";
+      el.querySelector(".bar i").style.width = hit ? Math.min(100, tw.depth * 9) + "%" : "0%";
+    });
+    document.getElementById("townCount").textContent = wetNow + " / " + r.towns.length + " hit";
+    // markers
+    Core.TOWNS.forEach(function (tw, i) {
+      var el = markerEls[i];
+      var hit = byName[tw.n] && byName[tw.n].arrive <= state.t && byName[tw.n].depth > 0.05;
+      if (hit && !el.classList.contains("hit")) {
+        el.classList.add("hit", "pulse");
+        setTimeout(function () { el.classList.remove("pulse"); }, 2400);
+      } else if (!hit && el.classList.contains("hit")) {
+        el.classList.remove("hit");
+      }
+      if (tw.p >= 5000 || i === state.selTown) el.classList.add("show"); else el.classList.remove("show");
+    });
+  }
+
+  // ---------- controls ----------
+  function bindControls() {
+    var mag = document.getElementById("mag"), magVal = document.getElementById("magVal");
+    var magTag = document.getElementById("magTag");
+    var center = document.getElementById("center"), centerOut = document.getElementById("centerOut");
+    var tide = document.getElementById("tide"), tideOut = document.getElementById("tideOut");
+    var subs = document.getElementById("subs");
+
+    function magLabel(v) {
+      var tag = "local thrust";
+      if (v >= 8.9) tag = "full margin";
+      else if (v >= 8.4) tag = "partial margin";
+      else if (v >= 7.6) tag = "multi-segment";
+      return tag;
+    }
+    function syncMag() {
+      state.mag = parseFloat(mag.value);
+      magVal.textContent = state.mag.toFixed(1);
+      magTag.textContent = magLabel(state.mag);
+      magVal.style.color = state.mag >= 8.9 ? "#ffb03a" : (state.mag >= 8 ? "#e7eef7" : "#a9bacd");
+      Array.prototype.forEach.call(document.querySelectorAll("#presets button"), function (b) {
+        b.classList.toggle("on", Math.abs(parseFloat(b.dataset.m) - state.mag) < 0.03);
+      });
+    }
+    mag.addEventListener("input", function () { syncMag(); scheduleRecompute(); });
+    center.addEventListener("input", function () {
+      state.center = parseFloat(center.value);
+      centerOut.textContent = state.center.toFixed(1) + "°N";
+      scheduleRecompute();
+    });
+    tide.addEventListener("input", function () {
+      state.tide = parseFloat(tide.value);
+      tideOut.textContent = Core.fmtSigned(state.tide, 1) + " m";
+      scheduleRecompute();
+    });
+    subs.addEventListener("change", function () { state.subs = subs.checked; scheduleRecompute(); });
+
+    var pbox = document.getElementById("presets");
+    Core.PRESETS.forEach(function (p) {
+      var b = document.createElement("button");
+      b.textContent = p.label; b.dataset.m = p.m;
+      b.title = "M" + p.m.toFixed(1) + " · " + p.tag;
+      b.addEventListener("click", function () {
+        mag.value = p.m; syncMag(); recompute(true);
+      });
+      pbox.appendChild(b);
+    });
+    syncMag();
+
+    document.getElementById("runBtn").addEventListener("click", function () { recompute(true); });
+
+    playBtn.addEventListener("click", function () {
+      if (!state.res) { recompute(true); return; }
+      if (state.t >= state.res.duration - 1) state.t = 0;
+      state.playing = !state.playing;
+      playBtn.textContent = state.playing ? "❚❚" : "▶";
+      if (state.playing) setStatus("running", "Running");
+    });
+    scrub.addEventListener("input", function () {
+      var r = state.res; if (!r) return;
+      state.t = (parseFloat(scrub.value) / 1000) * r.duration;
+      state.playing = false; playBtn.textContent = "▶";
+      updateClock(); renderTownsLite(); paintGauge();
+    });
+    speedSel.addEventListener("change", function () { state.speed = parseFloat(speedSel.value); });
+    document.getElementById("skipBtn").addEventListener("click", function () {
+      var r = state.res; if (!r) return;
+      state.t = r.duration; state.playing = false; playBtn.textContent = "▶";
+      updateClock(); renderTownsLite(); paintGauge(); setStatus("alert", "Peak reached");
+    });
+
+    // click on map sets rupture centre latitude
+    canvas.addEventListener("click", function (e) {
+      var fit = document.getElementById("mapFit").getBoundingClientRect();
+      var y = (e.clientY - fit.top) / fit.height;
+      var lat = D.lat0 + (1 - y) * D.ny * D.dlat;
+      lat = Math.max(42, Math.min(46, lat));
+      state.center = Math.round(lat * 10) / 10;
+      center.value = state.center;
+      centerOut.textContent = state.center.toFixed(1) + "°N";
+      scheduleRecompute();
+    });
+  }
+
+  var recompTimer = null;
+  function scheduleRecompute() {
+    clearTimeout(recompTimer);
+    recompTimer = setTimeout(function () { recompute(false); }, 260);
+  }
+  function recompute(play) {
+    compute(play);
+    state.playing = !!play;
+    playBtn.textContent = play ? "❚❚" : "▶";
+  }
+
+  // ---------- boot ----------
+  function boot() {
+    updateProj();
+    buildMarkers();
+    try { initGL(); } catch (err) {
+      setStatus("alert", "WebGL2 required");
+      document.getElementById("mapBox").innerHTML =
+        '<div style="padding:24px;color:#a9bacd;font-size:13px">WebGL2 is required to render the wave field.<br>' +
+        "<small style='color:#6d8199'>" + err.message + "</small></div>";
+      window.__BOOTERR__ = err.message;
+      return;
+    }
+    document.getElementById("metaRes").textContent =
+      D.nx + " × " + D.ny + " cells · ~" + Math.round(Core.cellMeters(D).x / 10) * 10 + " m";
+    fitCanvas();
+    bindControls();
+    window.addEventListener("resize", function () { fitCanvas(); });
+    var bytes = b64ToBytes(D.elev);
+    inflate(bytes).then(function (q) {
+      state.model = buildModel(q);
+      window.__READY__ = true;
+      recompute(true);
+      raf = requestAnimationFrame(tick);
+    }).catch(function (err) {
+      window.__BOOTERR__ = "decompress: " + err.message;
+      setStatus("alert", "Data error");
+    });
+    setTimeout(function () {
+      if (!window.__READY__) {
+        // fallback: raw (non-gzip) path is impossible; surface it
+      }
+    }, 4000);
+  }
+
+  if (hasDoc) {
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+    else boot();
+  }
+
+  // self-test / probe hook
+  window.__SELFTEST__ = function () {
+    var out = [];
+    function ok(cond, label, detail) { out.push((cond ? "PASS " : "FAIL ") + label + (detail !== undefined ? " :: " + detail : "")); return cond; }
+    try {
+      var m = state.model;
+      ok(!!m, "model built");
+      var r8 = Core.scenario(m, { mag: 8.0, centerLat: 44.5, tide: 0.9, subsidence: true });
+      var r9 = Core.scenario(m, { mag: 9.0, centerLat: 44.5, tide: 0.9, subsidence: true });
+      ok(r9.areaKm2 > r8.areaKm2, "M9 floods more than M8", r8.areaKm2.toFixed(0) + " -> " + r9.areaKm2.toFixed(0));
+      ok(r9.maxR > r8.maxR, "M9 runup > M8 runup", r8.maxR.toFixed(1) + " -> " + r9.maxR.toFixed(1));
+      ok(r9.firstLandfall > 300 && r9.firstLandfall < 3600, "first landfall plausible", (r9.firstLandfall / 60).toFixed(1) + " min");
+      var dry = Core.scenario(m, { mag: 7.0, centerLat: 44.5, tide: 0, subsidence: false });
+      ok(dry.areaKm2 < r9.areaKm2 * 0.25, "M7 inundation much smaller", dry.areaKm2.toFixed(1) + " km2");
+      var hi = Core.scenario(m, { mag: 9.0, centerLat: 44.5, tide: 2.5, subsidence: true });
+      ok(hi.areaKm2 > r9.areaKm2, "higher tide floods more", r9.areaKm2.toFixed(0) + " -> " + hi.areaKm2.toFixed(0));
+      // no NaN, ordering
+      var nan = 0, badOrder = 0, k;
+      for (k = 0; k < m.elev.length; k++) {
+        if (!isFinite(r9.arrive[k]) || !isFinite(r9.landT[k]) || !isFinite(r9.landD[k])) nan++;
+        if (r9.landD[k] > 0 && r9.landT[k] > 1e8) badOrder++;
+        if (m.elev[k] <= 0 && r9.landD[k] > 0) badOrder++;
+      }
+      ok(nan === 0, "no non-finite values", nan);
+      ok(badOrder === 0, "land wet only with a time, water not 'inundated'", badOrder);
+      ok(r9.duration > 2700 && r9.duration <= 9000, "duration bounded", r9.duration.toFixed(0));
+      var townWet = r9.towns.filter(function (t) { return t.depth > 0.05; }).length;
+      ok(townWet >= 8, "multiple communities hit at M9", townWet);
+      ok(Core.fmtClock(0) === "00:00" && Core.fmtClock(600) === "10:00", "clock format", Core.fmtClock(600));
+      var L7 = Core.ruptureLength(7), L9 = Core.ruptureLength(9);
+      ok(L7 < 120 && L9 > 600, "rupture length scaling", L7.toFixed(0) + " / " + L9.toFixed(0));
+    } catch (e) {
+      out.push("FAIL exception :: " + e.message + " @ " + (e.stack || "").split("\n")[1]);
+    }
+    var fails = out.filter(function (s) { return s.indexOf("FAIL") === 0; }).length;
+    document.title = "SELFTEST " + (fails ? "FAIL" : "PASS") + " (" + out.length + " checks)";
+    var pre = document.createElement("pre");
+    pre.id = "selftestOut";
+    pre.style.cssText = "position:fixed;left:0;top:0;z-index:99;max-height:100vh;overflow:auto;background:#000;color:#8f8;font:11px monospace;padding:8px;margin:0";
+    pre.textContent = out.join("\n");
+    if (location.search.indexOf("selftest") >= 0) document.body.appendChild(pre);
+    return { fails: fails, out: out };
+  };
+  window.__SETT__ = function (minutes) {
+    var r = state.res; if (!r) return false;
+    state.t = Math.max(0, Math.min(r.duration, minutes * 60));
+    state.playing = false; playBtn.textContent = "▶";
+    updateClock(); renderTownsLite(); paintGauge();
+    return state.t;
+  };
+  window.__PIXELS__ = function () {
+    if (!gl || !state.res) return null;
+    renderScene();
+    var w = canvas.width, h = canvas.height;
+    var px = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    var sum = 0, n = 0, water = 0, bright = 0, wet = 0;
+    var sig = new Float32Array(64), sigN = new Float32Array(64);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var i = (y * w + x) * 4;
+        var r0 = px[i], g0 = px[i + 1], b0 = px[i + 2];
+        var lum = 0.2126 * r0 + 0.7152 * g0 + 0.0722 * b0;
+        var bi = Math.min(7, Math.floor(y / h * 8)) * 8 + Math.min(7, Math.floor(x / w * 8));
+        sig[bi] += lum; sigN[bi]++;
+        if ((x + y * 3) % 11) continue;
+        sum += lum; n++;
+        if (b0 > r0 + 12 && b0 > 26) water++;
+        if (lum > 120) bright++;
+        if (b0 > 150 && g0 > 120) wet++;
+      }
+    }
+    var out = [];
+    for (var k = 0; k < 64; k++) out.push(Math.round(sig[k] / Math.max(1, sigN[k]) * 10) / 10);
+    return { mean: sum / n, waterFrac: water / n, brightFrac: bright / n, wetFrac: wet / n,
+             sig: out, w: w, h: h };
+  };
+  window.__PROBE__ = function () {
+    var r = state.res, m = state.model;
+    return {
+      ready: !!window.__READY__, booterr: window.__BOOTERR__ || null,
+      gl: window.__GLINFO__ || null,
+      t: state.t, dur: r ? r.duration : 0, playing: state.playing,
+      areaKm2: r ? r.areaKm2 : 0, maxR: r ? r.maxR : 0, maxDepth: r ? r.maxDepth : 0,
+      first: r ? r.firstLandfall : 0, slip: r ? r.slip : 0,
+      cells: m ? m.elev.length : 0,
+      townsWet: r ? r.towns.filter(function (x) { return x.depth > 0.05; }).length : 0,
+      canvas: [canvas.width, canvas.height],
+      computedMs: r ? r.computedMs : 0
+    };
+  };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+data/tiles/
+artifacts/*.png
+!artifacts/t022.png
+!artifacts/t095.png
+node_modules/
+__pycache__/
+*.pyc

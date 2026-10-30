@@ -1,0 +1,13 @@
+{
+  "name": "oregon-flood-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cascadia megathrust tsunami simulator for the Oregon coast, single file, zero dependencies",
+  "license": "MIT",
+  "scripts": {
+    "build": "python scripts/build.py",
+    "verify": "node scripts/verify_app.js",
+    "verify:browser": "node scripts/browser_check.js",
+    "verify:all": "node scripts/verify_app.js && node scripts/browser_check.js"
+  }
+}
