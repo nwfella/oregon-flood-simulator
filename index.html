@@ -304,7 +304,13 @@ input[type=range].flat::-moz-range-thumb{width:13px;height:13px;border:0;border-
                 (SRTM/NED on land, ETOPO bathymetry offshore). Populations are rounded 2020 census
                 figures; "people in zone" is population × the flooded fraction of each town's 2.5 km
                 disc — an exposure indicator, <b>not</b> a casualty forecast.</p>
-              <p><b>Resolution.</b> 520 m cells cannot resolve a 300 m beach berm. Coastal strips
+              <p><b>Arrival times. With the animation running, a 520 m grid puts the front
+            crossing the 30 km of 50–150 m deep shelf at 10–30 m/s, so the model is a few
+            minutes slower than the DOGAMI/NOAA figures: a weak leading signal reaches the
+            beach in the first 5–10 minutes (that is the coseismic withdrawal you would see),
+            the main wave arrives around 20 minutes, and water is pushing into town at 30+.
+            Real guidance of "15–20 minutes" refers to the main wave at the beach.</p>
+          <p><b>Resolution.</b> 520 m cells cannot resolve a 300 m beach berm. Coastal strips
                 narrower than a cell are averaged into the terrain around them, so inundation is
                 under-reported where the coast is steep — most of all on the south coast, where the
                 model shows far less flooding than the official maps do. Estuaries and wide flats
@@ -589,6 +595,7 @@ var Core = (function () {
     var BAND_M = 55000;                  // m: cells further than this can never seed
     var distF = new Float32Array(n);
     var alongF = new Float32Array(n);
+    var sideF = new Float32Array(n);     // +1 landward of the deformation front, -1 seaward
     for (i = 0; i < n; i++) distF[i] = 1e9;
     var k, t, ax, ay, bx, by, vx, vy, L2;
     for (k = 0; k < np - 1; k++) {
@@ -614,7 +621,11 @@ var Core = (function () {
           var qx = ax + vx * tt - px, qy = ay + vy * tt - py;
           var dd = Math.sqrt(qx * qx + qy * qy);
           var idd = jj * nx + ii;
-          if (dd < distF[idd]) { distF[idd] = dd; alongF[idd] = k + tt; }
+          if (dd < distF[idd]) {
+            distF[idd] = dd; alongF[idd] = k + tt;
+            // the margin trends north, so "landward" (east) is a negative cross product
+            sideF[idd] = (vx * wy - vy * wx) < 0 ? 1 : -1;
+          }
         }
       }
     }
@@ -635,7 +646,7 @@ var Core = (function () {
         if (elev[id] > 0) continue;
         var dkm = distF[id] / 1000;
         var bestAlong = rg.sA + (rg.sB - rg.sA) * ((alongF[id]) / (np - 1));
-        if (dkm > 6 && dkm < 50 && elev[id] < -40) {
+        if (sideF[id] > 0 && dkm > 2 && dkm < 96 && elev[id] < -20) {
           // taper to zero at the rupture ends
           var ends = Math.min(bestAlong - rg.sA, rg.sB - bestAlong);
           var taper = Math.min(1, ends / (0.09 * rg.lenKm + 6));
@@ -643,7 +654,8 @@ var Core = (function () {
           // downdip limit, where the margin subsides instead of uplifting
           // the displaced water is a broad plateau over the rupture plane; only the
           // seaward edge (the trench itself) and the downdip limit taper to nothing
-          var perp = Math.min(1, Math.max(0, (dkm - 3) / 9));
+          // full displacement across the locked zone, tapering at the trench and downdip
+          var perp = Math.min(1, Math.max(0, Math.min((dkm - 2) / 10, (96 - dkm) / 16)));
           var a0 = A0 * perp * taper;
           if (a0 > 0.05) {
             var tstart = Math.abs(bestAlong - rg.midS) / VRUPT;
@@ -696,7 +708,7 @@ var Core = (function () {
       for (i = 0; i < nx; i++) {
         var id2 = j * nx + i;
         if (elev[id2] > 0) continue;
-        if (arrive[id2] > 1e8) continue;
+        if (arrive[id2] > 1e8 || amp[id2] < 0.5) continue;
         // find adjacent land, then runup there
         for (var q = 0; q < 8; q++) {
           var li = i + NEI[q][0], lj = j + NEI[q][1];
