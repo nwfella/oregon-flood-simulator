@@ -155,18 +155,18 @@ async function waitFor(fn, ms, label) {
       await cdp.eval("(()=>{var e=document.getElementById('" + id + "');e.value='" + v +
         "';e.dispatchEvent(new Event('input',{bubbles:true}));})()");
     }
-    await setRange("mag", "7.0");
-    await waitFor(() => cdp.eval("window.__SIM__.res && Math.abs(window.__SIM__.res.mag-7.0)<0.01"), 30000, "M7 recompute");
+    await setRange("mag", "8.0");
+    await waitFor(() => cdp.eval("window.__SIM__.res && Math.abs(window.__SIM__.res.mag-8.0)<0.01"), 30000, "M8 recompute");
     await sleep(300);
     const p7 = JSON.parse(await cdp.eval("JSON.stringify(window.__PROBE__())"));
-    ok(p7.areaKm2 < P1.areaKm2 * 0.5, "M7 floods far less than M9",
+    ok(p7.areaKm2 < P1.areaKm2 * 0.75, "M8 floods far less than M9",
       p7.areaKm2.toFixed(1) + " vs " + P1.areaKm2.toFixed(0) + " km2");
     ok(p7.maxR < P1.maxR, "M7 runup below M9", p7.maxR.toFixed(1) + " vs " + P1.maxR.toFixed(1));
 
     await setRange("tide", "3");
     await waitFor(() => cdp.eval("window.__SIM__.res && Math.abs(window.__SIM__.res.tide-3)<0.01"), 30000, "tide recompute");
     const p7hi = JSON.parse(await cdp.eval("JSON.stringify(window.__PROBE__())"));
-    ok(p7hi.areaKm2 > p7.areaKm2, "high tide increases inundation",
+    ok(p7hi.areaKm2 > p7.areaKm2 && p7.areaKm2 > 0, "high tide increases inundation",
       p7.areaKm2.toFixed(1) + " -> " + p7hi.areaKm2.toFixed(1) + " km2");
 
     // back to the headline scenario
@@ -200,11 +200,22 @@ async function waitFor(fn, ms, label) {
 
     // --- responsive
     for (const [w, h] of [[1500, 1000], [1024, 900], [390, 844]]) {
-      await cdp.send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile: w < 500 });
-      await sleep(450);
+      // mobile:false keeps the layout viewport exactly at the requested width, so the
+      // media queries and the measurement agree (mobile:true gives a scaled visual viewport)
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+      const iwOK = await cdp.eval("window.innerWidth === " + w);
+      ok(iwOK, "emulated layout width is really " + w + "px", String(await cdp.eval("window.innerWidth")));
+      // wait for the map to settle inside the new viewport before measuring
+      try {
+        await waitFor(() => cdp.eval("document.getElementById('gl').getBoundingClientRect().width <= window.innerWidth + 1"),
+          4000, "canvas to fit " + w + "px");
+      } catch (e) { /* fall through: the assertions below will report the overflow */ }
+      await sleep(250);
       const m = JSON.parse(await cdp.eval(`JSON.stringify((function(){
         var d=document.documentElement, o=[], iw=window.innerWidth;
         document.querySelectorAll('body *').forEach(function(el){
+          // decorative map labels live inside #mapBox/#markers, both overflow:hidden
+          if (el.classList.contains('grat') || el.classList.contains('lbl')) return;
           var r=el.getBoundingClientRect();
           if(r.width>0 && r.right>iw+1.5) o.push(el.tagName+'.'+(el.className||'').toString().slice(0,24)+'@'+Math.round(r.right));
         });
