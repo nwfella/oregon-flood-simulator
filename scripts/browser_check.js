@@ -128,6 +128,16 @@ async function waitFor(fn, ms, label) {
     if (booterr) throw new Error("boot: " + booterr);
     await sleep(600);
 
+    // a stray unclosed tag can reparent whole sections out of <main>; catch it structurally
+    const struct = JSON.parse(await cdp.eval(`JSON.stringify((function(){
+      var m = document.querySelector('main');
+      var kids = [].map.call(m.children, function(c){ return c.tagName + '#' + c.id; });
+      return { kids: kids, n: kids.length,
+               bolds: document.querySelectorAll('main > b, main > i, main > span').length };
+    })())`));
+    ok(struct.n === 3 && struct.bolds === 0, "main holds exactly three top-level sections",
+      struct.kids.join(' '));
+
     const p1 = await cdp.eval("JSON.stringify(window.__PROBE__())");
     const P1 = JSON.parse(p1);
     ok(P1.ready === true, "model ready", "cells=" + P1.cells);

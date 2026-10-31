@@ -234,8 +234,9 @@ input[type=range].flat::-moz-range-thumb{width:13px;height:13px;border:0;border-
   main{grid-template-columns:288px minmax(0,1fr) 356px;padding:10px 12px 12px;gap:10px}
 }
 @media (max-width:1120px){
-  main{grid-template-columns:minmax(0,1fr) 340px;
+  main{grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:minmax(0,1fr) auto;
        grid-template-areas:"stage railR" "railL railR"}
+  #stage{min-height:420px}
   #stage{grid-area:stage} #railR{grid-area:railR} #railL{grid-area:railL;
        flex-direction:row;overflow:visible;align-items:flex-start}
   #railL .card{flex:1 1 0;min-width:0}
@@ -243,11 +244,9 @@ input[type=range].flat::-moz-range-thumb{width:13px;height:13px;border:0;border-
 @media (max-width:860px){
   body{overflow:auto}
   #app{height:auto;min-height:100dvh}
-  main{grid-template-columns:1fr;grid-template-areas:"stage" "railL" "railR";padding:10px}
-  html,body,#app,main{max-width:100vw;overflow-x:hidden}
+  main{grid-template-columns:minmax(0,1fr);grid-auto-rows:auto;grid-template-areas:"stage" "railL" "railR";padding:10px}
+  html,body,#app,main{max-width:100vw}
   #stage,#railL,#railR,#mapBox{min-width:0;max-width:100%}
-  #mapFit{width:100%!important;height:auto!important}
-  canvas#gl{width:100%!important;height:auto!important;aspect-ratio:723/900}
   #stage{height:min(78vh,640px)}
   #railL,#railR{overflow:visible}
   #railL{flex-direction:column}
@@ -308,7 +307,7 @@ input[type=range].flat::-moz-range-thumb{width:13px;height:13px;border:0;border-
                 (SRTM/NED on land, ETOPO bathymetry offshore). Populations are rounded 2020 census
                 figures; "people in zone" is population × the flooded fraction of each town's 2.5 km
                 disc — an exposure indicator, <b>not</b> a casualty forecast.</p>
-              <p><b>Arrival times. With the animation running, a 520 m grid puts the front
+              <p><b>Arrival times.</b> With the animation running, a 520 m grid puts the front
             crossing the 30 km of 50–150 m deep shelf at 10–30 m/s, so the model is a few
             minutes slower than the DOGAMI/NOAA figures: a weak leading signal reaches the
             beach in the first 5–10 minutes (that is the coseismic withdrawal you would see),
@@ -1188,6 +1187,7 @@ var Core = (function () {
     }
   }
 
+  var lastFitW = 0, lastFitH = 0;
   function fitCanvas() {
     var box = document.getElementById("mapBox");
     var fitEl = document.getElementById("mapFit");
@@ -1196,6 +1196,9 @@ var Core = (function () {
     var aspect = proj.aspect || 0.7015;
     var w = availW, h = w / aspect;
     if (h > availH) { h = availH; w = h * aspect; }
+    // guard: never re-fit to the size we just set, whatever triggered the call
+    if (Math.abs(w - lastFitW) < 8 && Math.abs(h - lastFitH) < 8) return;
+    lastFitW = w; lastFitH = h;
     fitEl.style.width = Math.round(w) + "px";
     fitEl.style.height = Math.round(h) + "px";
     canvas.style.width = Math.round(w) + "px";
@@ -1617,11 +1620,7 @@ var Core = (function () {
     fitCanvas();
     bindControls();
     window.addEventListener("resize", function () { fitCanvas(); });
-    // the map box can change size without a window resize (media queries, scrollbars, fonts)
-    if (window.ResizeObserver) {
-      var ro = new ResizeObserver(function () { fitCanvas(); });
-      ro.observe(document.getElementById("mapBox"));
-    }
+    window.addEventListener("orientationchange", function () { setTimeout(fitCanvas, 120); });
     var bytes = b64ToBytes(D.elev);
     inflate(bytes).then(function (q) {
       state.model = buildModel(q);
